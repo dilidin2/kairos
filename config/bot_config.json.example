@@ -6,7 +6,8 @@
   "llm_server": {
     "host": "localhost",
     "port": 8123,
-    "temperature": 0.6
+    "temperature": 0.6,
+    "max_tokens": 4096
   },
   "bot_language": "en",
   "quest_system": {
