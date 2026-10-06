@@ -1,8 +1,17 @@
 {
+  // Command metadata. Top-level keys are the canonical command names:
+  // do NOT rename them (handlers are wired by name in the code). To
+  // translate, only change the "help" text and trophy names/descriptions.
+  // If you want a localized command name, add it to the "aliases" array
+  // instead of renaming the key.
+
   "!roast": {
     "help": "Get a spicy roast (optionally target a user)",
     "aliases": ["!röst"],
+    // Cooldown in seconds (0 = none)
     "cooldown": 5,
+    // Trophy rules: "event" and "type" ("total" or "streak") are behaviour
+    // keys, name/description/threshold are tunable.
     "trophies": [
       { "name": "Hot Sauce", "event": "roast", "threshold": 1, "description": "First time you got roasted", "type": "total" },
       { "name": "Roast Master", "event": "roast", "threshold": 10, "description": "Got roasted 10 times", "type": "total" }

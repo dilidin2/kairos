@@ -1,8 +1,16 @@
 {
+  // Command metadata. Top-level keys are the canonical command names:
+  // do NOT rename them (handlers are wired by name in the code). To
+  // translate, only change the "help" text and trophy names/descriptions.
+  // If you want a localized command name, add it to the "aliases" array
+  // instead of renaming the key.
+
   "!ding": {
     "help": "start a fill-in-the-blank phrase game (answer with !dong)",
     "aliases": [],
+    // Cooldown in seconds (0 = none)
     "cooldown": 60,
+    // How many seconds the players have to answer
     "window_seconds": 30
   },
   "!dong": {

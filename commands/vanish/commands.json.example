@@ -1,8 +1,16 @@
 {
+  // Command metadata. Top-level keys are the canonical command names:
+  // do NOT rename them (handlers are wired by name in the code). To
+  // translate, only change the "help" text and trophy names/descriptions.
+  // If you want a localized command name, add it to the "aliases" array
+  // instead of renaming the key.
+
   "!vanish": {
     "help": "dramatically delete all of your messages from this live",
     "aliases": [],
+    // Cooldown in seconds (0 = none)
     "cooldown": 60,
+    // Delay (ms) before the deletion, for the dramatic effect
     "dramatic_delay_ms": 1000
   }
 }

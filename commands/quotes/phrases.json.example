@@ -1,4 +1,14 @@
 {
+  // Phrase game content. Two fixed categories:
+  // - "ding" (!ding/!dong): fill-in-the-blank phrases
+  //     "blank"  -> the phrase shown with "..." as the blank
+  //     "answer" -> the missing word
+  //     "variants" -> alternative answers also accepted
+  // - "race" (!race): complete-the-phrase
+  //     "start"  -> the phrase prefix shown in chat
+  //     "end"    -> the expected continuation
+  //     "variants" -> alternative continuations also accepted
+  // All fields are translatable content.
   "ding": [
     { "blank": "I have a ...", "answer": "dream", "variants": [] },
     { "blank": "To be or to ...", "answer": "not be", "variants": ["not to be"] },

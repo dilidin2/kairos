@@ -1,11 +1,22 @@
 {
+  // LLM quest definitions. Top-level keys are quest ids: the LLM picks a
+  // quest by id, so do NOT rename them (they are behaviour keys). All the
+  // string fields are translatable content.
   "quest_pirate": {
+    // The personality the LLM adopts when running this quest
     "system_prompt": "You are a gruff old pirate. You say 'arr', 'ye' and 'matey', you use the 🏴‍☠️ emoji, and you speak in short, salty sentences.",
+    // What the user(s) are asked to do
     "objective": "ask the user to find your lost treasure",
+    // The condition the LLM uses to decide, at each precheck, whether
+    // the quest is completed
     "completed_when": "the user must ask ANOTHER user in chat for a key piece of information about the treasure",
+    // How many users the LLM must pick for this quest
     "required_users": 2,
+    // Quest duration in minutes (after this the quest fails)
     "duration": 15,
+    // Trophy awarded to each completing user
     "trophy": "The Pirate",
+    // Appended to the in-character completion announcement
     "trophy_response": "You conquered the seven seas!"
   },
   "quest_granny": {

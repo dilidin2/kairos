@@ -1,9 +1,18 @@
 {
+  // Command metadata. Top-level keys are the canonical command names:
+  // do NOT rename them (handlers are wired by name in the code). To
+  // translate, only change the "help" text and trophy names/descriptions.
+  // If you want a localized command name, add it to the "aliases" array
+  // instead of renaming the key.
+
   "!8ball": {
     "help": "ask the magic 8-ball a question",
     "aliases": [],
+    // Cooldown in seconds (0 = none)
     "cooldown": 5,
+    // Max attempts per user per day (0 = unlimited)
     "max_attempts_per_day": 0,
+    // Random answers returned by !8ball (extra param read by the handler)
     "responses": [
       "It is certain.",
       "Without a doubt.",
@@ -18,6 +27,8 @@
       "You'll know soon enough.",
       "Ask again later."
     ],
+    // Trophy rules: "event" and "type" ("total" or "streak") are behaviour
+    // keys, name/description/threshold are tunable.
     "trophies": [
       { "name": "Wisdom", "event": "ask", "threshold": 1, "description": "First question to the magic 8-ball", "type": "total" },
       { "name": "Philosopher", "event": "ask", "threshold": 10, "description": "10 questions to the magic 8-ball", "type": "total" }
@@ -28,8 +39,12 @@
     "aliases": [],
     "cooldown": 30,
     "max_attempts_per_day": 5,
+    // Chance (0-1) of landing a winning combo
     "win_probability": 0.15,
+    // The symbols that can appear on the reels (whole strings, emoji ok)
     "slot_symbols": ["🍒", "🍋", "🍊", "💎", "7️⃣", "🔔", "⭐", "🍀"],
+    // Winning combos: the exact 3-symbol sequence and its payout multiplier
+    // (used by !bet: winnings = stake * multiplier)
     "slot_combos": [
       { "combo": ["🍒", "🍒", "🍒"], "multiplier": 2 },
       { "combo": ["💎", "💎", "💎"], "multiplier": 5 },
@@ -48,6 +63,7 @@
     "aliases": [],
     "cooldown": 5,
     "max_attempts_per_day": 0,
+    // The two outcomes (must be exactly 2 entries, order: heads, tails)
     "flip_outcomes": ["Heads", "Tails"],
     "trophies": [
       { "name": "Coin Flipper", "event": "flip", "threshold": 1, "description": "First coin flip", "type": "total" },

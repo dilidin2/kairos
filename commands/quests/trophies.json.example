@@ -1,5 +1,9 @@
 {
+  // Translatable one-off trophy texts. A value can be a plain message
+  // string or an object {name, message}. Placeholders: {user}, {name}.
   "unlock": "🏆 {user} unlocked the trophy \"{name}\"!",
+  // 1st completed quest
   "quest_completer": { "name": "Quest Completer" },
+  // 5 completed quests
   "quest_master": { "name": "Quest Master" }
 }

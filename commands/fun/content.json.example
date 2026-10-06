@@ -1,4 +1,9 @@
 {
+  // Content lists: one key per category, each a list of strings. A random
+  // entry is picked per command. Empty/missing lists make the command
+  // reply with a "coming soon" message instead of crashing.
+  // The keys are fixed: roasts (!roast), jokes (!joke), truths (!truth),
+  // dares (!dare) — only the entries are translatable.
   "roasts": [
     "Your last move was so slow I thought the chat froze.",
     "You're proof that even Wi-Fi can have bad days.",

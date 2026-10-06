@@ -1,12 +1,19 @@
 {
+  // Master switch for the plugin: when false, register() skips everything.
   "enabled": true,
+  // Named timers: one reminder every `interval_minutes`.
+  // The timer name is a free-form id (shown in the logs).
   "timers": {
     "pausa": {
+      // How often the reminder fires, in minutes
       "interval_minutes": 30,
+      // The reminder texts (randomly picked if shuffle_messages is true,
+      // cycled in order otherwise) — translatable
       "messages": [
         "⏰ Remember to take a break and look away from the screen",
         "⏰ Have you moved in the last 30 minutes?"
       ],
+      // true = pick a random message each time, false = cycle in order
       "shuffle_messages": true
     },
     "anniversario": {

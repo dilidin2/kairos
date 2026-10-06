@@ -1,9 +1,19 @@
 {
+  // Command metadata. Top-level keys are the canonical command names:
+  // do NOT rename them (handlers are wired by name in the code). To
+  // translate, only change the "help" text and trophy names/descriptions.
+  // If you want a localized command name, add it to the "aliases" array
+  // instead of renaming the key.
+
   "!quiz": {
     "help": "start a trivia quiz, or answer with !quiz <answer>",
     "aliases": [],
+    // Cooldown in seconds (0 = none)
     "cooldown": 2,
+    // How many seconds the answerer has to solve the question
     "window_seconds": 30,
+    // Trophy rules: "event" and "type" ("total" or "streak") are behaviour
+    // keys, name/description/threshold are tunable.
     "trophies": [
       { "name": "Quiz Wizard", "event": "win", "threshold": 1, "description": "Won a quiz", "type": "total" }
     ]

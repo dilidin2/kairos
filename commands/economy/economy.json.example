@@ -1,6 +1,10 @@
 {
+  // Starting balance (🪙) granted to each new user on their first interaction
   "startBalance": 100,
+  // Minimum amount for a bet (enforced by !bet through the economy service)
   "minBet": 1,
+  // A single payout >= this amount unlocks the "Big Winner" trophy
   "bigWinner": 50,
+  // First user to reach this balance unlocks the "First to {amount}" trophy
   "firstTo": 1000
 }

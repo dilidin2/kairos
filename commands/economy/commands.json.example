@@ -1,13 +1,22 @@
 {
+  // Command metadata. Top-level keys are the canonical command names:
+  // do NOT rename them (handlers are wired by name in the code). To
+  // translate, only change the "help" text and trophy names/descriptions.
+  // If you want a localized command name, add it to the "aliases" array
+  // instead of renaming the key.
+
   "!balance": {
     "help": "check your coin balance",
     "aliases": [],
+    // Cooldown in seconds (0 = none)
     "cooldown": 0
   },
   "!pay": {
     "help": "give coins to a user (!pay <user> <amount>)",
     "aliases": [],
     "cooldown": 10,
+    // Trophy rules: "event" and "type" ("total" or "streak") are behaviour
+    // keys, name/description/threshold are tunable.
     "trophies": [
       { "name": "Charity Case", "event": "pay", "threshold": 10, "description": "Sent 10 payments", "type": "total" }
     ]
@@ -16,6 +25,7 @@
     "help": "top 5 richest users",
     "aliases": [],
     "cooldown": 10,
+    // How many users !rich shows (extra param read by the handler)
     "rich_top": 5
   }
 }

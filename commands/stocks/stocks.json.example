@@ -1,15 +1,45 @@
 {
+  // --- Market parameters ---
+
+  // How often (in seconds) the market does a tick: one random-walk step
+  // for every stock, plus a chance of a rare shock (main.nim: doTick).
   "tickSeconds": 60,
+
+  // PnL threshold for the "PnL King" trophy: first user whose
+  // PnL (portfolio value - invested cash) reaches this amount
+  // unlocks the trophy and gets announced in chat.
   "pnlKing": 100.0,
+
+  // Portfolio value threshold for the "Stock Millionaire" trophy:
+  // first user whose total holdings value reaches this amount
+  // unlocks the trophy and gets announced in chat.
   "millionaire": 1000.0,
+
+  // Chance (in percent, 0-100) per tick and per stock that a rare
+  // event (shock) hits it, on top of the normal random walk.
   "shockChance": 5,
+
+  // Minimum amplitude of a rare shock, in percent (e.g. 20 = ±20%).
   "shockMin": 20,
+
+  // Maximum amplitude of a rare shock, in percent.
   "shockMax": 40,
+
+  // A shock with |amplitude| >= this (as a fraction, 0.2 = 20%)
+  // is considered a crash/surge event: it is announced in chat with
+  // 📈/📉 and, if negative, "Crash Survivor" trophies are awarded
+  // to whoever held that stock.
   "crashThreshold": 0.2,
+
+  // --- Stock list ---
+  // New stocks start from the "price" here; already persisted stocks
+  // keep their current price and only "volatility" is reloaded.
   "stocks": [
     {
       "name": "Pasta",
       "price": 10.0,
+      // Amplitude of the normal random walk per tick, as a fraction
+      // (0.08 = ±8% per tick). Higher = more volatile/risky stock.
       "volatility": 0.08
     },
     {
@@ -30,11 +60,13 @@
     {
       "name": "Memecoin",
       "price": 2.0,
+      // Most volatile stock: ±35% swings per tick, cheap and risky.
       "volatility": 0.35
     },
     {
       "name": "Tardis",
       "price": 300.0,
+      // Most expensive stock, moderate volatility.
       "volatility": 0.12
     }
   ]

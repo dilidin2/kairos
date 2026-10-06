@@ -1,4 +1,10 @@
 [
+  // Quiz questions. Fields per question:
+  // - "category": shown in the announcement, free-form (any string)
+  // - "question": the trivia question
+  // - "answer": the main correct answer (revealed at the end)
+  // - "variants": alternative spellings/words also accepted as correct
+  // All fields are translatable content.
   { "category": "cinema", "question": "What year was the first James Bond film, 'Dr. No', released?", "answer": "1962", "variants": [] },
   { "category": "cinema", "question": "In The Lion King, who is Simba's father?", "answer": "Mufasa", "variants": [] },
   { "category": "cinema", "question": "Which 1994 film features the line 'Life is like a box of chocolate'?", "answer": "Forrest Gump", "variants": [] },

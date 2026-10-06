@@ -1,8 +1,16 @@
 {
+  // Master switch for the plugin: when false, register() skips everything.
   "enabled": true,
+  // Users who have been inactive in chat for more than this many
+  // minutes are removed from the quest pool (and are no longer pickable)
   "inactive_minutes": 10,
+  // How many times the LLM can try to pick a valid quest+users before
+  // falling back to a simple quest
   "max_pick_attempts": 3,
+  // Period (ms) of the quest check loop (precheck / timeout handling)
   "check_tick_ms": 15000,
+  // Failure messages sent when a quest times out (separate from the
+  // in-character defeat message): single-user quest vs multi-user quest
   "quest_failed_message_single": "You have failed the quest!",
   "quest_failed_message_multi": "You have failed the quest!"
 }

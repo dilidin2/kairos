@@ -1,3 +1,5 @@
 {
+  // Master switch for the plugin: when false, register() skips everything
+  // and no commands are registered.
   "enabled": true
 }

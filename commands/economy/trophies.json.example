@@ -1,4 +1,7 @@
 {
+  // Translatable one-off trophy texts. A value can be a plain message
+  // string or an object {name, message}. Placeholders: {user}, {name},
+  // {amount}.
   "unlock": "🏆 {user} unlocked the trophy \"{name}\"!",
   "first_to": {
     "name": "First to {amount}",

@@ -1,9 +1,19 @@
 {
+  // Command metadata. Top-level keys are the canonical command names:
+  // do NOT rename them (handlers are wired by name in the code). To
+  // translate, only change the "help" text and trophy names/descriptions.
+  // If you want a localized command name, add it to the "aliases" array
+  // instead of renaming the key (aliases are shown next to the command
+  // name in !commands).
+
   "!commands": {
     "help": "list all available commands",
     "aliases": [],
+    // Cooldown in seconds (0 = none)
     "cooldown": 0,
+    // Max attempts per user per day (0 = unlimited)
     "max_attempts_per_day": 0,
+    // Extra param: link shown by !commands
     "url": "https://dilidin2.github.io/kairos/"
   },
   "!help": {
