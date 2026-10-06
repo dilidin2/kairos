@@ -1,4 +1,4 @@
-import std/[strutils, tables, json, os, times, asyncdispatch, parseutils]
+import std/[strutils, tables, json, os, times, asyncdispatch, parseutils, sequtils]
 
 import kairosbot/plugin
 import kairosbot/core/command_router
@@ -37,6 +37,56 @@ proc loadEconomyParams*(path: string): (int, int, int, int) =
     result[2] = node["bigWinner"].getInt
   if node.hasKey("firstTo") and node["firstTo"].kind == JInt:
     result[3] = node["firstTo"].getInt
+
+# --- Payroll ---------------------------------------------------------------------------
+
+type
+  PayrollConfig* = object
+    ## Periodic payroll: credits every known user on an interval so nobody
+    ## gets stuck at 0 coins
+    amount*: int
+    ## coins credited to each user per payroll
+    intervalMinutes*: int
+    ## how often the payroll runs (minutes)
+    message*: string
+    ## chat broadcast (placeholder {amount})
+    firstPayTrophy*: string
+    ## trophy unlocked on the first payroll
+
+proc loadPayrollConfig*(path: string): PayrollConfig =
+  ## Payroll config from economy.json; defaults if missing
+  result = PayrollConfig(
+    amount: 10,
+    intervalMinutes: 60,
+    message: "💸 Payday! Added {amount} 🪙 to your balance!",
+    firstPayTrophy: "First Paycheck")
+  let node = loadJson(path)
+  if node.kind != JObject or not node.hasKey("payroll") or
+      node["payroll"].kind != JObject:
+    return
+  let p = node["payroll"]
+  if p.hasKey("amount") and p["amount"].kind == JInt:
+    result.amount = p["amount"].getInt
+  if p.hasKey("intervalMinutes") and p["intervalMinutes"].kind == JInt:
+    result.intervalMinutes = p["intervalMinutes"].getInt
+  if p.hasKey("message") and p["message"].kind == JString:
+    result.message = p["message"].getStr
+  if p.hasKey("firstPayTrophy") and p["firstPayTrophy"].kind == JString:
+    result.firstPayTrophy = p["firstPayTrophy"].getStr
+
+proc runPayroll*(svc: EconomyService, tracker: TrophyTracker,
+                chat: TwitchChat, cfg: PayrollConfig) {.async.} =
+  ## One payroll cycle: credits every known user, unlocks the first-pay
+  ## trophy on the first cycle, and broadcasts the message
+  let users = toSeq(svc.balances.keys)
+  if users.len == 0:
+    return
+  for user in users:
+    svc.credit(user, cfg.amount)
+    # unlocks the first-pay trophy on the first cycle only
+    discard tracker.recordEvent(user, "payroll", "payday")
+  let msg = cfg.message.replace("{amount}", $cfg.amount)
+  await safeSend(chat, msg)
 
 # --- Trophies --------------------------------------------------------------------------
 
@@ -132,6 +182,22 @@ proc register*(ctx: PluginContext) =
   # trophy rules from commands.json, built-in default as fallback
   let fromJson = loadTrophyRules(specs.getOrDefault("pay", CommandSpec(name: "pay")))
   ctx.trophyRules("pay", if fromJson.len > 0: fromJson else: createPayRules())
+
+  # periodic payroll: credits every known user on the interval
+  let payroll = loadPayrollConfig(ctx.dir / "economy.json")
+  if payroll.amount > 0 and payroll.intervalMinutes > 0:
+    ctx.trophyRules("payroll", @[
+      TrophyRule(name: payroll.firstPayTrophy, eventType: "payday",
+        threshold: 1, description: "Received your first payroll",
+        ruleType: trtTotal)
+    ])
+    let chat = ctx.platform.router.chat
+    let tracker = ctx.platform.trophyTracker
+    ctx.every(payroll.intervalMinutes * 60, proc () {.async.} =
+      await runPayroll(svc, tracker, chat, payroll)
+    )
+  else:
+    echo "[PLUGIN] economy: payroll disabled (amount/interval <= 0)"
 
   proc onShut() {.async.} =
     await svc.forceSave()

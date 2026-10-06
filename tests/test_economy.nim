@@ -178,3 +178,75 @@ suite "EconomyPlugin":
       let trophies = router.trophyTracker.getUserTrophies("luigi")
       check trophies.anyIt(it.name == "First to 1000")
     waitFor(runTest())
+
+  test "loadPayrollConfig reads values and falls back to defaults":
+    # missing file -> defaults
+    let d = cmd_econ.loadPayrollConfig(getTempDir() / "kairos_test_no_payroll.json")
+    check d.amount == 10
+    check d.intervalMinutes == 60
+    check d.firstPayTrophy == "First Paycheck"
+
+    # custom values
+    let path = getTempDir() / "kairos_test_payroll_cfg.json"
+    writeFile(path, """{"payroll":{"amount":25,"intervalMinutes":15,"message":"Hi {amount}","firstPayTrophy":"Cash In"}}""")
+    let c = cmd_econ.loadPayrollConfig(path)
+    check c.amount == 25
+    check c.intervalMinutes == 15
+    check c.message == "Hi {amount}"
+    check c.firstPayTrophy == "Cash In"
+
+  test "runPayroll credits users, unlocks the first-pay trophy, broadcasts":
+    proc runTest() {.async.} =
+      mockMany("/helix/chat/messages", 10, 200, """{"data":[{"message_id":"abc","is_sent":true,"drop_reason":null}]}""")
+      await startMockHttp(Port(18880))
+
+      let svc = newEconomyService(getTempDir() / "kairos_test_payroll_svc.json")
+      svc.balances["mario"] = 0
+      svc.balances["luigi"] = 5
+      let ctx = makeMockContext("economy", Port(18880), dir = "commands/economy")
+      let tracker = ctx.platform.trophyTracker
+      tracker.addRules("payroll", @[
+        TrophyRule(name: "First Paycheck", eventType: "payday",
+          threshold: 1, description: "Received your first payroll",
+          ruleType: trtTotal)
+      ])
+      let cfg = cmd_econ.PayrollConfig(amount: 10, intervalMinutes: 60,
+        message: "💸 Payday! Added {amount} 🪙 to your balance!",
+        firstPayTrophy: "First Paycheck")
+      let chat = ctx.platform.router.chat
+      await cmd_econ.runPayroll(svc, tracker, chat, cfg)
+
+      # balances credited
+      check svc.balances["mario"] == 10
+      check svc.balances["luigi"] == 15
+      # first-pay trophy awarded to both
+      check tracker.getUserTrophies("mario").anyIt(it.name == "First Paycheck")
+      check tracker.getUserTrophies("luigi").anyIt(it.name == "First Paycheck")
+      # message broadcast with the amount substituted
+      let sent = sentMessages()
+      check sent[0].contains("Added 10")
+
+      # second cycle: balance grows, no duplicate trophy
+      let before = tracker.getUserTrophies("mario").len
+      await cmd_econ.runPayroll(svc, tracker, chat, cfg)
+      check svc.balances["mario"] == 20
+      check tracker.getUserTrophies("mario").len == before
+    waitFor(runTest())
+
+  test "runPayroll is a no-op when there are no users":
+    proc runTest() {.async.} =
+      mockMany("/helix/chat/messages", 5, 200, """{"data":[{"message_id":"abc","is_sent":true,"drop_reason":null}]}""")
+      await startMockHttp(Port(18881))
+
+      let svc = newEconomyService(getTempDir() / "kairos_test_payroll_empty.json")
+      let ctx = makeMockContext("economy", Port(18881), dir = "commands/economy")
+      let tracker = ctx.platform.trophyTracker
+      let cfg = cmd_econ.PayrollConfig(amount: 10, intervalMinutes: 60,
+        message: "💸 Payday! Added {amount} 🪙 to your balance!",
+        firstPayTrophy: "First Paycheck")
+      let chat = ctx.platform.router.chat
+      await cmd_econ.runPayroll(svc, tracker, chat, cfg)
+      # nobody credited, no message sent
+      check svc.balances.len == 0
+      check sentMessages().len == 0
+    waitFor(runTest())
