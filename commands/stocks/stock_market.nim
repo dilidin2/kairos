@@ -47,6 +47,11 @@ proc round2*(x: float): float =
   ## Rounds to 2 decimal places
   result = round(x * 100.0) / 100.0
 
+const minPrice = 1.0
+  ## Hard lower bound for a stock price. Below this the round2 rounding in
+  ## cmdBuy/cmdSell starts to behave like a lottery (fractions of a coin), so
+  ## the floor keeps every transaction in the normal integer-coin range.
+
 proc normUser*(user: string): string =
   ## Normalizes a username (lowercase)
   result = user.toLowerAscii()
@@ -99,16 +104,20 @@ proc tick*(m: StockMarket): seq[(string, float)] =
   for key in m.stocks.keys:
     var item = m.stocks[key]
     item.prevPrice = item.price
-    # random walk
+    # random walk: log-normal so the median (not the mean) stays flat.
+    # A +x followed by a -x returns to the exact previous price (exp(x)*exp(-x)=1),
+    # which kills the volatility drag that made prices decay tick after tick.
     let change = rand(-item.volatility .. item.volatility)
-    item.price = round2(item.price * (1.0 + change))
+    item.price = round2(item.price * exp(change))
     # rare event: shock with a random amplitude in [shockMin, shockMax]
     if rand(100) < m.shockChance:
       let magnitude = float(rand(m.shockMin .. m.shockMax)) / 100.0
       let dir = if rand(2) == 0: 1.0 else: -1.0
-      item.price = round2(item.price * (1.0 + dir * magnitude))
+      item.price = round2(item.price * exp(dir * magnitude))
       if abs(magnitude) >= m.crashThreshold:
         result.add((item.name, dir * magnitude))
+    # never let a tick push a price into the rounding-lottery zone (see minPrice)
+    item.price = max(item.price, minPrice)
     m.stocks[key] = item
   m.lastTick = epochTime()
   scheduleMarketSave(m)

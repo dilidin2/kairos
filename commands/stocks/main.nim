@@ -147,8 +147,10 @@ proc cmdBuy*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   if parts.len != 2:
     await safeSend(router.chat, msg.username & ", usage: !buy <item> <quantity>")
     return
-  let qty = parseInt(parts[1])
-  if qty < 1:
+  var qty = 0
+  try: qty = parseInt(parts[1]) except ValueError: qty = 0
+  # guard against overflow / garbage: e.g. !buy doge abc or a huge number
+  if qty < 1 or qty > 1_000_000:
     await safeSend(router.chat, msg.username & ", enter a valid quantity")
     return
   # qty already extracted
@@ -159,7 +161,9 @@ proc cmdBuy*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   if econ.isNil:
     await safeSend(router.chat, msg.username & ", the economy is not available")
     return
-  let cash = int(round(stockOpt.get().price * float(qty)))
+  # round up: a buyer must never pay less than the true value. max(1, ...) so
+  # a purchase always costs at least 1 coin, even for sub-coin prices.
+  let cash = max(1, int(ceil(stockOpt.get().price * float(qty))))
   if not econ.debit(msg.username, cash):
     await safeSend(router.chat, msg.username & ", you only have " &
       $econ.getBalance(msg.username) & " 🪙")
@@ -175,8 +179,10 @@ proc cmdSell*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   if parts.len != 2:
     await safeSend(router.chat, msg.username & ", usage: !sell <item> <quantity>")
     return
-  let qty = parseInt(parts[1])
-  if qty < 1:
+  var qty = 0
+  try: qty = parseInt(parts[1]) except ValueError: qty = 0
+  # guard against overflow / garbage: e.g. !sell doge abc or a huge number
+  if qty < 1 or qty > 1_000_000:
     await safeSend(router.chat, msg.username & ", enter a valid quantity")
     return
   # qty already extracted
@@ -187,7 +193,9 @@ proc cmdSell*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   if econ.isNil:
     await safeSend(router.chat, msg.username & ", the economy is not available")
     return
-  let cash = int(round(stockOpt.get().price * float(qty)))
+  # round down: a seller must never receive more than the true value, so the
+  # buy-ceil / sell-floor gap can never be exploited for free coins.
+  let cash = int(floor(stockOpt.get().price * float(qty)))
   if not market.removeHolding(msg.username, parts[0], qty, float(cash)):
     await safeSend(router.chat, msg.username & ", you don't own " & parts[0])
     return
