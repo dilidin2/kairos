@@ -1,4 +1,4 @@
-import std/[strutils, times, asyncdispatch, options, tables, os]
+import std/[strutils, times, asyncdispatch, options, tables, os, sequtils]
 
 import kairosbot/plugin
 import kairosbot/core/command_router
@@ -31,11 +31,15 @@ proc formatCommandsText*(router: CommandRouter): string =
   ## Formats the command list for !commands: one section per category
   ## (one category per plugin) with one line per command (names only;
   ## !help <command> shows the description). Categories are derived from
-  ## the registry, so new plugins appear automatically.
+  ## the registry, so new plugins appear automatically. Aliases (e.g.
+  ## translated names set in commands.json) are shown in parentheses
+  ## next to the command name.
   for cat in router.registry.listCategories():
     result &= "\n" & capitalizeAscii(cat) & ":"
     for cmd in router.registry.listByCategory(cat):
       result &= "\n" & router.prefix & cmd.name
+      if cmd.aliases.len > 0:
+        result &= " (" & cmd.aliases.mapIt(router.prefix & it).join(", ") & ")"
 
 proc formatCommandHelp*(cmd: Command): string =
   ## Formats the help for a single command (helpText + cooldown + attempts)
