@@ -271,24 +271,33 @@ proc finishQuestComplete(ctx: PluginContext, state: QuestState,
   ## Trophies + announcement + peer event (does NOT remove from state.active)
   let tracker = ctx.platform.trophyTracker
   let ts = toIsoString(now().toTime())
+  var newTrophies: seq[(string, Trophy)] = @[]
+  ## (user, trophy) pairs newly unlocked: notified in chat
   for user in q.users:
     state.data.completedCount[user] = state.data.completedCount.getOrDefault(user, 0) + 1
     let n = state.data.completedCount[user]
     if q.trophy.len > 0:
-      discard tracker.awardTrophy(user, Trophy(name: q.trophy,
-        command: "quest", unlockedAt: ts))
+      let t = Trophy(name: q.trophy, command: "quest", unlockedAt: ts)
+      if tracker.awardTrophy(user, t):
+        newTrophies.add((user, t))
     let qc = trophyText(trophyTexts, "quest_completer", "Quest Completer", "")
     let qm = trophyText(trophyTexts, "quest_master", "Quest Master", "")
     if n >= 1:
-      discard tracker.awardTrophy(user, Trophy(name: qc.name,
-        command: "quest", unlockedAt: ts))
+      let t = Trophy(name: qc.name, command: "quest", unlockedAt: ts)
+      if tracker.awardTrophy(user, t):
+        newTrophies.add((user, t))
     if n >= 5:
-      discard tracker.awardTrophy(user, Trophy(name: qm.name,
-        command: "quest", unlockedAt: ts))
+      let t = Trophy(name: qm.name, command: "quest", unlockedAt: ts)
+      if tracker.awardTrophy(user, t):
+        newTrophies.add((user, t))
   saveTyped(ctx.statePath, state.data)
 
   ctx.setBusy("quest completed")
   await ctx.send(announcement)
+  let tpl = trophyText(trophyTexts, "unlock", "",
+    "🏆 {user} unlocked the trophy \"{name}\"!")
+  for (user, t) in newTrophies:
+    await ctx.send(tpl.message.replace("{user}", user).replace("{name}", t.name))
   ctx.clearBusy()
 
   ctx.broadcastEvent(PeerEvent(eventType: "quest_done",
