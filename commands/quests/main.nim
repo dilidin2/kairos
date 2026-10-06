@@ -97,7 +97,7 @@ proc extractJson(text: string): Option[JsonNode] =
   let finish = text.rfind('}')
   if start >= 0 and finish > start:
     try:
-      result = some(parseJson(text.substr(start, finish - start)))
+      result = some(parseJson(text.substr(start, finish)))
     except CatchableError:
       result = none(JsonNode)
   else:
@@ -210,7 +210,10 @@ proc buildPickPrompt(state: QuestState, available: seq[QuestDefinition]): string
   s &= "name. "
   s &= "Language: " & state.cfg.botLanguage & ". "
   s &= "Respond with ONLY a JSON object: "
-  s &= "{\"quest\": \"<quest_id>\", \"users\": [\"<user1>\", ...], \"message\": \"...\"}."
+  s &= "{\"quest\": \"<quest_id>\", \"users\": [\"<user1>\", ...], \"message\": \"...\"}. "
+  s &= "No preamble, no explanation, no markdown code fences (do NOT wrap "
+  s &= "the JSON in ```json): the first character of your reply must be { and "
+  s &= "the last one }."
   result = s
 
 proc buildPrecheckPrompt(q: ActiveQuest, language: string): string =
@@ -222,6 +225,9 @@ proc buildPrecheckPrompt(q: ActiveQuest, language: string): string =
     q.transcript.join("\n") & "\n" &
     "Respond with ONLY a JSON object: " &
     "{\"completed\": \"yes\" | \"no\", \"message_if_completed\": \"...\"}. " &
+    "No preamble, no explanation, no markdown code fences (do NOT wrap " &
+    "the JSON in ```json): the first character of your reply must be { " &
+    "and the last one }. " &
     "If the quest is NOT completed, set \"completed\" to \"no\" and leave " &
     "\"message_if_completed\" as an empty string. " &
     "If it IS completed, set \"completed\" to \"yes\" and write in " &
