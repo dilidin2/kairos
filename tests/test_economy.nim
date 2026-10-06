@@ -195,58 +195,109 @@ suite "EconomyPlugin":
     check c.message == "Hi {amount}"
     check c.firstPayTrophy == "Cash In"
 
-  test "runPayroll credits users, unlocks the first-pay trophy, broadcasts":
+  test "payrollTick: per-user clock, first-pay trophy, public announce":
     proc runTest() {.async.} =
-      mockMany("/helix/chat/messages", 10, 200, """{"data":[{"message_id":"abc","is_sent":true,"drop_reason":null}]}""")
-      await startMockHttp(Port(18880))
+      mockMany("/helix/chat/messages", 20, 200, """{"data":[{"message_id":"abc","is_sent":true,"drop_reason":null}]}""")
+      await startMockHttp(Port(18882))
 
-      let svc = newEconomyService(getTempDir() / "kairos_test_payroll_svc.json")
-      svc.balances["mario"] = 0
-      svc.balances["luigi"] = 5
-      let ctx = makeMockContext("economy", Port(18880), dir = "commands/economy")
+      let ctx = makeMockContext("economy", Port(18882), dir = "commands/economy")
+      cmd_econ.register(ctx)
+      let svc = cast[EconomyService](ctx.platform.services["economy"])
+      # reset shared module state: the mock temp dirs persist across runs
+      svc.balances = initTable[string, int]()
+      cmd_econ.nextPayAt = initTable[string, int]()
       let tracker = ctx.platform.trophyTracker
-      tracker.addRules("payroll", @[
-        TrophyRule(name: "First Paycheck", eventType: "payday",
-          threshold: 1, description: "Received your first payroll",
-          ruleType: trtTotal)
-      ])
-      let cfg = cmd_econ.PayrollConfig(amount: 10, intervalMinutes: 60,
-        message: "💸 Payday! Added {amount} 🪙 to your balance!",
-        firstPayTrophy: "First Paycheck")
       let chat = ctx.platform.router.chat
-      await cmd_econ.runPayroll(svc, tracker, chat, cfg)
+      let cfg = cmd_econ.PayrollConfig(amount: 10, intervalMinutes: 60,
+        message: "💸 {user}, added {amount} 🪙 to your balance!",
+        firstPayTrophy: "First Paycheck")
+      let now0 = 1_000_000
 
-      # balances credited
-      check svc.balances["mario"] == 10
-      check svc.balances["luigi"] == 15
-      # first-pay trophy awarded to both
+      # mario enters at now0
+      discard svc.getBalance("mario")
+      # first tick: mario is scheduled, not paid yet
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0)
+      check svc.balances["mario"] == 100
+      check sentMessages().len == 0
+      # 30 min later: still not due
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 1800)
+      check svc.balances["mario"] == 100
+      check sentMessages().len == 0
+      # 60 min after entry: due -> paid + trophy + public announce
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 3600)
+      check svc.balances["mario"] == 110
       check tracker.getUserTrophies("mario").anyIt(it.name == "First Paycheck")
-      check tracker.getUserTrophies("luigi").anyIt(it.name == "First Paycheck")
-      # message broadcast with the amount substituted
       let sent = sentMessages()
-      check sent[0].contains("Added 10")
-
-      # second cycle: balance grows, no duplicate trophy
-      let before = tracker.getUserTrophies("mario").len
-      await cmd_econ.runPayroll(svc, tracker, chat, cfg)
-      check svc.balances["mario"] == 20
-      check tracker.getUserTrophies("mario").len == before
+      check sent.anyIt(it.contains("unlocked") and it.contains("First Paycheck"))
+      check sent.anyIt(it.contains("mario") and it.contains("added 10"))
+      # second pay an hour later: balance grows, no duplicate trophy
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 7200)
+      check svc.balances["mario"] == 120
+      check tracker.getUserTrophies("mario").len == 1
     waitFor(runTest())
 
-  test "runPayroll is a no-op when there are no users":
+  test "payrollTick: two users are paid on their own clocks":
     proc runTest() {.async.} =
-      mockMany("/helix/chat/messages", 5, 200, """{"data":[{"message_id":"abc","is_sent":true,"drop_reason":null}]}""")
-      await startMockHttp(Port(18881))
+      mockMany("/helix/chat/messages", 20, 200, """{"data":[{"message_id":"abc","is_sent":true,"drop_reason":null}]}""")
+      await startMockHttp(Port(18883))
 
-      let svc = newEconomyService(getTempDir() / "kairos_test_payroll_empty.json")
-      let ctx = makeMockContext("economy", Port(18881), dir = "commands/economy")
+      let ctx = makeMockContext("economy", Port(18883), dir = "commands/economy")
+      cmd_econ.register(ctx)
+      let svc = cast[EconomyService](ctx.platform.services["economy"])
+      # reset shared module state: the mock temp dirs persist across runs
+      svc.balances = initTable[string, int]()
+      cmd_econ.nextPayAt = initTable[string, int]()
       let tracker = ctx.platform.trophyTracker
-      let cfg = cmd_econ.PayrollConfig(amount: 10, intervalMinutes: 60,
-        message: "💸 Payday! Added {amount} 🪙 to your balance!",
-        firstPayTrophy: "First Paycheck")
       let chat = ctx.platform.router.chat
-      await cmd_econ.runPayroll(svc, tracker, chat, cfg)
-      # nobody credited, no message sent
-      check svc.balances.len == 0
-      check sentMessages().len == 0
+      let cfg = cmd_econ.PayrollConfig(amount: 10, intervalMinutes: 60,
+        message: "💸 {user}, added {amount} 🪙 to your balance!",
+        firstPayTrophy: "First Paycheck")
+      let now0 = 1_000_000
+
+      # a enters at now0
+      discard svc.getBalance("a")
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0)
+      # b enters 25 min later
+      discard svc.getBalance("b")
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 1800)
+      # 25 min in: neither is due yet
+      check svc.balances["a"] == 100
+      check svc.balances["b"] == 100
+      # at now0+3600: a is due on a's own clock, b is NOT
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 3600)
+      check svc.balances["a"] == 110
+      check svc.balances["b"] == 100
+      # at now0+5400: b is due, a is not (a next due at now0+7200)
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 5400)
+      check svc.balances["a"] == 110
+      check svc.balances["b"] == 110
+    waitFor(runTest())
+
+  test "payrollTick: no catch-up storm after downtime":
+    proc runTest() {.async.} =
+      mockMany("/helix/chat/messages", 20, 200, """{"data":[{"message_id":"abc","is_sent":true,"drop_reason":null}]}""")
+      await startMockHttp(Port(18884))
+
+      let ctx = makeMockContext("economy", Port(18884), dir = "commands/economy")
+      cmd_econ.register(ctx)
+      let svc = cast[EconomyService](ctx.platform.services["economy"])
+      # reset shared module state: the mock temp dirs persist across runs
+      svc.balances = initTable[string, int]()
+      cmd_econ.nextPayAt = initTable[string, int]()
+      let tracker = ctx.platform.trophyTracker
+      let chat = ctx.platform.router.chat
+      let cfg = cmd_econ.PayrollConfig(amount: 10, intervalMinutes: 60,
+        message: "💸 {user}, added {amount} 🪙 to your balance!",
+        firstPayTrophy: "First Paycheck")
+      let now0 = 1_000_000
+
+      # mario scheduled at now0+3600, then the bot is "offline" for 5 hours
+      discard svc.getBalance("mario")
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0)
+      # 5 hours later: overdue by way more than one interval -> paid ONCE
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 18000)
+      check svc.balances["mario"] == 110
+      # and the next pay is rescheduled to >= now+interval (not due yet)
+      await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 19800)
+      check svc.balances["mario"] == 110
     waitFor(runTest())

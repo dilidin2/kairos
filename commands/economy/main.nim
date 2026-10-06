@@ -19,6 +19,10 @@ var
   ## Metadata read from commands.json in register()
   trophyTexts*: Table[string, TrophyText]
   ## Translatable one-off trophy texts from trophies.json
+  nextPayAt*: Table[string, int]
+  ## username (lowercase) -> unix seconds of the user's next payroll
+  payrollPath: string
+  ## where nextPayAt is persisted (data/economy_payroll.json)
 
 # --- Parameters -----------------------------------------------------------------------
 
@@ -49,7 +53,7 @@ type
     intervalMinutes*: int
     ## how often the payroll runs (minutes)
     message*: string
-    ## chat broadcast (placeholder {amount})
+    ## per-user chat announcement (placeholders {user}, {amount})
     firstPayTrophy*: string
     ## trophy unlocked on the first payroll
 
@@ -58,7 +62,7 @@ proc loadPayrollConfig*(path: string): PayrollConfig =
   result = PayrollConfig(
     amount: 10,
     intervalMinutes: 60,
-    message: "💸 Payday! Added {amount} 🪙 to your balance!",
+    message: "💸 {user}, added {amount} 🪙 to your balance!",
     firstPayTrophy: "First Paycheck")
   let node = loadJson(path)
   if node.kind != JObject or not node.hasKey("payroll") or
@@ -74,19 +78,47 @@ proc loadPayrollConfig*(path: string): PayrollConfig =
   if p.hasKey("firstPayTrophy") and p["firstPayTrophy"].kind == JString:
     result.firstPayTrophy = p["firstPayTrophy"].getStr
 
-proc runPayroll*(svc: EconomyService, tracker: TrophyTracker,
-                chat: TwitchChat, cfg: PayrollConfig) {.async.} =
-  ## One payroll cycle: credits every known user, unlocks the first-pay
-  ## trophy on the first cycle, and broadcasts the message
-  let users = toSeq(svc.balances.keys)
-  if users.len == 0:
-    return
-  for user in users:
-    svc.credit(user, cfg.amount)
-    # unlocks the first-pay trophy on the first cycle only
-    discard tracker.recordEvent(user, "payroll", "payday")
-  let msg = cfg.message.replace("{amount}", $cfg.amount)
-  await safeSend(chat, msg)
+proc sendTrophyNotifs(chat: TwitchChat, username: string,
+                      trophies: seq[Trophy]) {.async.} =
+  let tpl = trophyText(trophyTexts, "unlock", "",
+    "🏆 {user} unlocked the trophy \"{name}\"!")
+  for t in trophies:
+    let msg = tpl.message.replace("{user}", username).replace("{name}", t.name)
+    await safeSend(chat, msg)
+
+proc payrollTick*(chat: TwitchChat, tracker: TrophyTracker,
+                 cfg: PayrollConfig, nowSec: int = int(epochTime())) {.async.} =
+  ## One payroll tick with a PER-USER clock: each user is paid `interval`
+  ## minutes after their own first interaction, so nobody gets stuck at 0.
+  ## Brand-new users are scheduled; users whose pay is due get credited and
+  ## are announced publicly (with the first-pay trophy on the first one).
+  let interval = cfg.intervalMinutes * 60
+  var dirty = false
+  # schedule users we haven't seen before (first pay `interval` from now)
+  for user in toSeq(svc.balances.keys):
+    if not nextPayAt.hasKey(user):
+      nextPayAt[user] = nowSec + interval
+      dirty = true
+  # credit everyone whose payroll is due
+  var paid: seq[string] = @[]
+  for user in toSeq(nextPayAt.keys):
+    if nextPayAt[user] <= nowSec:
+      svc.credit(user, cfg.amount)
+      # no catch-up storm after downtime: next pay is >= `interval` from now
+      nextPayAt[user] = if nextPayAt[user] + interval < nowSec:
+                          nowSec + interval
+                        else:
+                          nextPayAt[user] + interval
+      paid.add(user)
+      dirty = true
+  for user in paid:
+    # public first-pay trophy announcement (only on the first payroll)
+    let trophies = tracker.recordEvent(user, "payroll", "payday")
+    await sendTrophyNotifs(chat, user, trophies)
+    let msg = cfg.message.replace("{user}", user).replace("{amount}", $cfg.amount)
+    await safeSend(chat, msg)
+  if dirty:
+    saveTyped(payrollPath, nextPayAt)
 
 # --- Trophies --------------------------------------------------------------------------
 
@@ -96,14 +128,6 @@ proc createPayRules*(): seq[TrophyRule] =
     TrophyRule(name: "Charity Case", eventType: "pay", threshold: 10,
       description: "Sent 10 payments", ruleType: trtTotal),
   ]
-
-proc sendTrophyNotifs(chat: TwitchChat, username: string,
-                      trophies: seq[Trophy]) {.async.} =
-  let tpl = trophyText(trophyTexts, "unlock", "",
-    "🏆 {user} unlocked the trophy \"{name}\"!")
-  for t in trophies:
-    let msg = tpl.message.replace("{user}", username).replace("{name}", t.name)
-    await safeSend(chat, msg)
 
 # --- Handlers ---------------------------------------------------------------------------
 
@@ -183,7 +207,7 @@ proc register*(ctx: PluginContext) =
   let fromJson = loadTrophyRules(specs.getOrDefault("pay", CommandSpec(name: "pay")))
   ctx.trophyRules("pay", if fromJson.len > 0: fromJson else: createPayRules())
 
-  # periodic payroll: credits every known user on the interval
+  # periodic payroll: a per-user clock so nobody gets stuck at 0
   let payroll = loadPayrollConfig(ctx.dir / "economy.json")
   if payroll.amount > 0 and payroll.intervalMinutes > 0:
     ctx.trophyRules("payroll", @[
@@ -191,14 +215,20 @@ proc register*(ctx: PluginContext) =
         threshold: 1, description: "Received your first payroll",
         ruleType: trtTotal)
     ])
+    payrollPath = ctx.platform.dataDir / "economy_payroll.json"
+    nextPayAt = loadTyped[Table[string, int]](payrollPath,
+                    initTable[string, int]())
     let chat = ctx.platform.router.chat
     let tracker = ctx.platform.trophyTracker
-    ctx.every(payroll.intervalMinutes * 60, proc () {.async.} =
-      await runPayroll(svc, tracker, chat, payroll)
+    # fixed 1-minute tick so each user's per-user due time is caught on time
+    ctx.every(60, proc () {.async.} =
+      await payrollTick(chat, tracker, payroll)
     )
   else:
     echo "[PLUGIN] economy: payroll disabled (amount/interval <= 0)"
 
   proc onShut() {.async.} =
     await svc.forceSave()
+    if payrollPath.len > 0:
+      saveTyped(payrollPath, nextPayAt)
   ctx.onShutdown(onShut)

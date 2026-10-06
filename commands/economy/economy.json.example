@@ -7,14 +7,15 @@
   "bigWinner": 50,
   // First user to reach this balance unlocks the "First to {amount}" trophy
   "firstTo": 1000,
-  // Payroll: on the interval, every known user is credited `amount` coins so
-  // nobody gets stuck at 0. `message` is broadcast in chat (placeholder
+  // Payroll: a PER-USER clock. Each user is credited `amount` coins `interval`
+  // minutes after their own first interaction, so nobody gets stuck at 0.
+  // `message` is announced in chat for each payout (placeholders {user},
   // {amount}); `firstPayTrophy` is the trophy unlocked on the first payroll.
   // Set `amount` or `intervalMinutes` to 0 to disable the payroll.
   "payroll": {
     "amount": 10,
     "intervalMinutes": 60,
-    "message": "💸 Payday! Added {amount} 🪙 to your balance!",
+    "message": "💸 {user}, added {amount} 🪙 to your balance!",
     "firstPayTrophy": "First Paycheck"
   }
 }
