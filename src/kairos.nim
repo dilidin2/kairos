@@ -125,8 +125,23 @@ proc runBot*(
   await shutdownFuture
   await shutdown(chat, trophyTracker, attemptTracker, platform)
 
+proc seedDefaults() =
+  ## Seeds config/ and commands/ from .example templates (only missing files)
+  var created = 0
+  for dir in @["config", "commands"]:
+    if dirExists(dir):
+      for f in walkDirRec(dir):
+        if f.endsWith(".example"):
+          let target = f[0 ..^ 9]  # strip ".example"
+          if not fileExists(target):
+            copyFile(f, target)
+            inc created
+  if created > 0:
+    echo "Created ", created, " default file(s) from .example templates"
+
 proc main() {.async.} =
   ## Main function: CLI parsing, bootstrap, start, wait for shutdown
+  seedDefaults()
   let isBot = parseCliArgs()
   var tokenKind: TokenKind
   var scopes: seq[string]
