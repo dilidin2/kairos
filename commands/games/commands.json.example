@@ -1,0 +1,63 @@
+{
+  "!8ball": {
+    "help": "ask the magic 8-ball a question",
+    "aliases": [],
+    "cooldown": 5,
+    "max_attempts_per_day": 0,
+    "responses": [
+      "It is certain.",
+      "Without a doubt.",
+      "It is decided, but wait a little longer.",
+      "The signs say yes, for now.",
+      "Don't count on it.",
+      "Better not tell you now.",
+      "My sources say no.",
+      "Outlook not so good.",
+      "Absolutely not.",
+      "Very doubtful.",
+      "You'll know soon enough.",
+      "Ask again later."
+    ],
+    "trophies": [
+      { "name": "Wisdom", "event": "ask", "threshold": 1, "description": "First question to the magic 8-ball", "type": "total" },
+      { "name": "Philosopher", "event": "ask", "threshold": 10, "description": "10 questions to the magic 8-ball", "type": "total" }
+    ]
+  },
+  "!slots": {
+    "help": "play the slot machine (you can bet on a symbol)",
+    "aliases": [],
+    "cooldown": 30,
+    "max_attempts_per_day": 5,
+    "win_probability": 0.15,
+    "slot_symbols": ["🍒", "🍋", "🍊", "💎", "7️⃣", "🔔", "⭐", "🍀"],
+    "slot_combos": [
+      { "combo": ["🍒", "🍒", "🍒"], "multiplier": 2 },
+      { "combo": ["💎", "💎", "💎"], "multiplier": 5 },
+      { "combo": ["7️⃣", "7️⃣", "7️⃣"], "multiplier": 10 },
+      { "combo": ["🔔", "🔔", "🔔"], "multiplier": 8 },
+      { "combo": ["🍀", "🍀", "🍀"], "multiplier": 15 }
+    ],
+    "trophies": [
+      { "name": "Gambler", "event": "win", "threshold": 1, "description": "First slot machine win", "type": "total" },
+      { "name": "Trifecta", "event": "win", "threshold": 3, "description": "3 slot machine wins", "type": "total" },
+      { "name": "Golden Streak", "event": "win", "threshold": 3, "description": "3 slot machine wins in a row", "type": "streak" }
+    ]
+  },
+  "!flip": {
+    "help": "flip a coin (bet heads or tails)",
+    "aliases": [],
+    "cooldown": 5,
+    "max_attempts_per_day": 0,
+    "flip_outcomes": ["Heads", "Tails"],
+    "trophies": [
+      { "name": "Coin Flipper", "event": "flip", "threshold": 1, "description": "First coin flip", "type": "total" },
+      { "name": "Lucky Streak", "event": "win", "threshold": 3, "description": "3 coin flip wins in a row", "type": "streak" }
+    ]
+  },
+  "!bet": {
+    "help": "bet coins on a game (!bet <amount> <flip|slots>)",
+    "aliases": [],
+    "cooldown": 5,
+    "max_attempts_per_day": 0
+  }
+}

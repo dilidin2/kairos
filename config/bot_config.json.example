@@ -1,0 +1,23 @@
+{
+  "bot_name": "kairos",
+  "channel": "yout_streamer_name",
+  "command_prefix": "!",
+  "cooldown_default": 30,
+  "llm_server": {
+    "host": "localhost",
+    "port": 8123,
+    "temperature": 0.6
+  },
+  "bot_language": "en",
+  "quest_system": {
+    "enabled": true,
+    "periodic_quest_call": 1,
+    "llm_active": true
+  },
+  "peerbus": {
+    "host": "127.0.0.1",
+    "port": 8310,
+    "kind": "games",
+    "peers": {}
+  }
+}

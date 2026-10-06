@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "inactive_minutes": 10,
+  "max_pick_attempts": 3,
+  "check_tick_ms": 15000
+}

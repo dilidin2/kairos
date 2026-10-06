@@ -1,0 +1,14 @@
+{
+  "millionaire": {
+    "name": "Stock Millionaire",
+    "message": "🏆 {user} is the first to {amount} 🪙 in stocks!"
+  },
+  "pnl_king": {
+    "name": "PnL King",
+    "message": "👑 {user} is the {name}!"
+  },
+  "crash_survivor": {
+    "name": "Crash Survivor",
+    "message": "🦴 {user} survived the {item} crash!"
+  }
+}

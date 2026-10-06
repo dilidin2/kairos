@@ -1,0 +1,8 @@
+{
+  "!vanish": {
+    "help": "dramatically delete all of your messages from this live",
+    "aliases": [],
+    "cooldown": 60,
+    "dramatic_delay_ms": 1000
+  }
+}

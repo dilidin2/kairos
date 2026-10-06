@@ -1,0 +1,7 @@
+{
+  "unlock": "🏆 {user} unlocked the trophy \"{name}\"!",
+  "first_to": {
+    "name": "First to {amount}",
+    "message": "🏆 {user} unlocked the trophy \"{name}\"!"
+  }
+}

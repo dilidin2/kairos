@@ -1,0 +1,44 @@
+// TRANSLATE ONLY THE TEXT, DO NOT CHANGE BEHAVIOUR
+//
+// Fallback simple quests. Used ONLY when llm_active is false, or when the
+// LLM fails 3 times in a row.
+//
+// Behaviour keys (do NOT change): id, required_text, required_count,
+// duration, weight.
+// Translatable keys: text, trophy, trophy_response.
+//
+// {streamer} is replaced with the channel login at runtime.
+// Selection is weighted by `weight` and cycles (the last 5 given are
+// excluded), so rarer quests (lower weight) come up less often.
+[
+  {
+    "id": "name10",
+    "text": "Write the streamer's name 10 times",
+    "required_text": "{streamer}",
+    "required_count": 10,
+    "duration": 5,
+    "trophy": "Name Writer",
+    "trophy_response": "You wrote the name 10 times!",
+    "weight": 3
+  },
+  {
+    "id": "word5",
+    "text": "Write \"kairos\" 5 times",
+    "required_text": "kairos",
+    "required_count": 5,
+    "duration": 5,
+    "trophy": "Chatterbox",
+    "trophy_response": "You kept the chatter going!",
+    "weight": 3
+  },
+  {
+    "id": "name15",
+    "text": "Write the streamer's name 15 times",
+    "required_text": "{streamer}",
+    "required_count": 15,
+    "duration": 8,
+    "trophy": "Name Master",
+    "trophy_response": "You mastered the name!",
+    "weight": 1
+  }
+]

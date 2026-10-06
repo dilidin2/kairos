@@ -1,0 +1,37 @@
+# Build artifacts
+*.nim.c
+*.o
+*.d
+kairos
+@/
+tests/test_*
+!tests/test_*.nim
+
+# Generated plugin aggregator
+generated/
+
+# Personal config files (the .example versions are tracked)
+config/*.json
+!config/*.json.example
+data/*.json
+!data/*.json.example
+
+# Plugin commands/data files (the .example versions are tracked)
+commands/*/*.json
+!commands/*/*.json.example
+
+# Logs
+logs/
+
+# IDE
+.vscode/
+.idea/
+tools/gen_plugins
+commands/*/main
+
+# Local docs and personal files
+PI.md
+AGENTS.md
+AUGMENTS.md
+SPEC.md
+.gitignore.save

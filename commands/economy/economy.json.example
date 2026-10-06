@@ -1,0 +1,6 @@
+{
+  "startBalance": 100,
+  "minBet": 1,
+  "bigWinner": 50,
+  "firstTo": 1000
+}

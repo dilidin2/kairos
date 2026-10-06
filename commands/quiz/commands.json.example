@@ -1,0 +1,11 @@
+{
+  "!quiz": {
+    "help": "start a trivia quiz, or answer with !quiz <answer>",
+    "aliases": [],
+    "cooldown": 2,
+    "window_seconds": 30,
+    "trophies": [
+      { "name": "Quiz Wizard", "event": "win", "threshold": 1, "description": "Won a quiz", "type": "total" }
+    ]
+  }
+}

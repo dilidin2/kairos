@@ -1,0 +1,8 @@
+{
+  "!trophy": {
+    "help": "show a user's trophies (usage: !trophy [user])",
+    "aliases": [],
+    "cooldown": 5,
+    "max_attempts_per_day": 0
+  }
+}

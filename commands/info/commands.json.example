@@ -1,0 +1,27 @@
+{
+  "!commands": {
+    "help": "list all available commands",
+    "aliases": [],
+    "cooldown": 0,
+    "max_attempts_per_day": 0,
+    "url": "https://dilidin2.github.io/kairos/"
+  },
+  "!help": {
+    "help": "show info about a command (usage: !help <command>)",
+    "aliases": [],
+    "cooldown": 0,
+    "max_attempts_per_day": 0
+  },
+  "!uptime": {
+    "help": "show how long the bot has been online",
+    "aliases": [],
+    "cooldown": 0,
+    "max_attempts_per_day": 0
+  },
+  "!ping": {
+    "help": "ping-pong",
+    "aliases": [],
+    "cooldown": 0,
+    "max_attempts_per_day": 0
+  }
+}

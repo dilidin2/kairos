@@ -1,0 +1,21 @@
+{
+  "!balance": {
+    "help": "check your coin balance",
+    "aliases": [],
+    "cooldown": 0
+  },
+  "!pay": {
+    "help": "give coins to a user (!pay <user> <amount>)",
+    "aliases": [],
+    "cooldown": 10,
+    "trophies": [
+      { "name": "Charity Case", "event": "pay", "threshold": 10, "description": "Sent 10 payments", "type": "total" }
+    ]
+  },
+  "!rich": {
+    "help": "top 5 richest users",
+    "aliases": [],
+    "cooldown": 10,
+    "rich_top": 5
+  }
+}

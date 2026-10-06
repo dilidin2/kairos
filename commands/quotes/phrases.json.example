@@ -1,0 +1,33 @@
+{
+  "ding": [
+    { "blank": "I have a ...", "answer": "dream", "variants": [] },
+    { "blank": "To be or to ...", "answer": "not be", "variants": ["not to be"] },
+    { "blank": "May the ... be with you", "answer": "force", "variants": [] },
+    { "blank": "I'm the king of the ...", "answer": "world", "variants": [] },
+    { "blank": "All that glitters is not ...", "answer": "gold", "variants": [] },
+    { "blank": "After ... comes ease", "answer": "rain", "variants": [] },
+    { "blank": "The early bird catches the ...", "answer": "worm", "variants": [] },
+    { "blank": "Look before you ...", "answer": "leap", "variants": [] },
+    { "blank": "A journey of a thousand miles begins with a single ...", "answer": "step", "variants": [] },
+    { "blank": "Life is like a box of ...", "answer": "chocolate", "variants": [] },
+    { "blank": "Elementary, my dear ...", "answer": "Watson", "variants": [] },
+    { "blank": "I'm going to need a bigger ...", "answer": "boat", "variants": [] },
+    { "blank": "Show me the ...", "answer": "money", "variants": [] },
+    { "blank": "Houston, we have a ...", "answer": "problem", "variants": [] },
+    { "blank": "There's no place like ...", "answer": "home", "variants": [] }
+  ],
+  "race": [
+    { "start": "All I really need to be happy is", "end": "a sunny day and rainbows", "variants": [] },
+    { "start": "Do not go gentle into that", "end": "night", "variants": [] },
+    { "start": "I'm just a small town", "end": "girl", "variants": [] },
+    { "start": "You've got a way of making me", "end": "feel so alive", "variants": [] },
+    { "start": "Let it snow, let it snow, let it", "end": "snow", "variants": [] },
+    { "start": "The best thing to hold on to is", "end": "each other", "variants": [] },
+    { "start": "I will always remember this", "end": "moment", "variants": [] },
+    { "start": "Hakuna means you have no", "end": "worries", "variants": [] },
+    { "start": "You only live", "end": "once", "variants": [] },
+    { "start": "Part of the journey is the", "end": "end", "variants": [] },
+    { "start": "I was born to", "end": "sing", "variants": [] },
+    { "start": "Nothing is impossible, the word just", "end": "says so", "variants": [] }
+  ]
+}

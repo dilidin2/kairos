@@ -1,0 +1,41 @@
+{
+  "tickSeconds": 60,
+  "pnlKing": 100.0,
+  "millionaire": 1000.0,
+  "shockChance": 5,
+  "shockMin": 20,
+  "shockMax": 40,
+  "crashThreshold": 0.2,
+  "stocks": [
+    {
+      "name": "Pasta",
+      "price": 10.0,
+      "volatility": 0.08
+    },
+    {
+      "name": "GPU",
+      "price": 150.0,
+      "volatility": 0.15
+    },
+    {
+      "name": "Sardine",
+      "price": 5.0,
+      "volatility": 0.1
+    },
+    {
+      "name": "MoonRock",
+      "price": 80.0,
+      "volatility": 0.2
+    },
+    {
+      "name": "Memecoin",
+      "price": 2.0,
+      "volatility": 0.35
+    },
+    {
+      "name": "Tardis",
+      "price": 300.0,
+      "volatility": 0.12
+    }
+  ]
+}

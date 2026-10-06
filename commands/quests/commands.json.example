@@ -1,0 +1,20 @@
+{
+  "!adventure": {
+    "help": "join the quest pool (the bot may assign you a quest)",
+    "aliases": [],
+    "cooldown": 30,
+    "max_attempts_per_day": 0
+  },
+  "!noadventure": {
+    "help": "leave the quest pool",
+    "aliases": [],
+    "cooldown": 30,
+    "max_attempts_per_day": 0
+  },
+  "!quest": {
+    "help": "show your active quest and get one hint",
+    "aliases": [],
+    "cooldown": 30,
+    "max_attempts_per_day": 0
+  }
+}

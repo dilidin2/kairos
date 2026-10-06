@@ -1,0 +1,22 @@
+[
+  { "category": "cinema", "question": "What year was the first James Bond film, 'Dr. No', released?", "answer": "1962", "variants": [] },
+  { "category": "cinema", "question": "In The Lion King, who is Simba's father?", "answer": "Mufasa", "variants": [] },
+  { "category": "cinema", "question": "Which 1994 film features the line 'Life is like a box of chocolate'?", "answer": "Forrest Gump", "variants": [] },
+  { "category": "geography", "question": "What is the capital of Australia?", "answer": "Canberra", "variants": [] },
+  { "category": "geography", "question": "Which country has the most natural lakes?", "answer": "Canada", "variants": [] },
+  { "category": "geography", "question": "What is the longest river in the world?", "answer": "Nile", "variants": ["Nilo"] },
+  { "category": "science", "question": "What is the chemical symbol for gold?", "answer": "Au", "variants": [] },
+  { "category": "science", "question": "How many planets are in our solar system?", "answer": "8", "variants": ["eight"] },
+  { "category": "science", "question": "What gas do plants absorb from the atmosphere?", "answer": "Carbon dioxide", "variants": ["co2", "carbon dioxsode"] },
+  { "category": "history", "question": "Who was the first president of the United States?", "answer": "George Washington", "variants": ["Washington"] },
+  { "category": "history", "question": "In what year did World War II end?", "answer": "1945", "variants": [] },
+  { "category": "sports", "question": "How many players are on a soccer team on the field?", "answer": "11", "variants": ["eleven"] },
+  { "category": "sports", "question": "In which sport would you perform a slam dunk?", "answer": "Basketball", "variants": [] },
+  { "category": "music", "question": "How many strings does a standard guitar have?", "answer": "6", "variants": ["six"] },
+  { "category": "music", "question": "Which band performed the album 'The Dark Side of the Moon'?", "answer": "Pink Floyd", "variants": [] },
+  { "category": "food", "question": "What fruit is the main ingredient in guacamole?", "answer": "Avocado", "variants": [] },
+  { "category": "food", "question": "What is the primary ingredient in hummus?", "answer": "Chickpeas", "variants": ["chick peas", "chickpea"] },
+  { "category": "animals", "question": "What is the tallest animal in the world?", "answer": "Giraffe", "variants": [] },
+  { "category": "animals", "question": "How many legs does a spider have?", "answer": "8", "variants": ["eight"] },
+  { "category": "tech", "question": "What does 'www' stand for?", "answer": "World Wide Web", "variants": ["the world wide web"] }
+]

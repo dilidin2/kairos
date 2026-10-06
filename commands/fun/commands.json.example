@@ -1,0 +1,30 @@
+{
+  "!roast": {
+    "help": "Get a spicy roast (optionally target a user)",
+    "aliases": ["!röst"],
+    "cooldown": 5,
+    "trophies": [
+      { "name": "Hot Sauce", "event": "roast", "threshold": 1, "description": "First time you got roasted", "type": "total" },
+      { "name": "Roast Master", "event": "roast", "threshold": 10, "description": "Got roasted 10 times", "type": "total" }
+    ]
+  },
+  "!joke": {
+    "help": "Hear a random joke",
+    "aliases": [],
+    "cooldown": 5,
+    "trophies": [
+      { "name": "Class Clown", "event": "joke", "threshold": 1, "description": "First joke told", "type": "total" },
+      { "name": "Comedian", "event": "joke", "threshold": 10, "description": "Told 10 jokes", "type": "total" }
+    ]
+  },
+  "!truth": {
+    "help": "A truth about you, no escape",
+    "aliases": [],
+    "cooldown": 5
+  },
+  "!dare": {
+    "help": "A dare for you to complete",
+    "aliases": [],
+    "cooldown": 5
+  }
+}

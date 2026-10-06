@@ -1,0 +1,18 @@
+{
+  "!ding": {
+    "help": "start a fill-in-the-blank phrase game (answer with !dong)",
+    "aliases": [],
+    "cooldown": 60,
+    "window_seconds": 30
+  },
+  "!dong": {
+    "help": "answer the current ding (!dong <word>)",
+    "aliases": [],
+    "cooldown": 2
+  },
+  "!race": {
+    "help": "start a complete-the-phrase race (answer with !race)",
+    "aliases": [],
+    "cooldown": 60
+  }
+}

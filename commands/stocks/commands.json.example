@@ -1,0 +1,22 @@
+{
+  "!stock": {
+    "help": "list the virtual stocks with prices and trends",
+    "aliases": [],
+    "cooldown": 5
+  },
+  "!buy": {
+    "help": "buy stocks (!buy <item> <quantity>)",
+    "aliases": [],
+    "cooldown": 5
+  },
+  "!sell": {
+    "help": "sell stocks (!sell <item> <quantity>)",
+    "aliases": [],
+    "cooldown": 5
+  },
+  "!portfolio": {
+    "help": "show your holdings, total value and PnL",
+    "aliases": [],
+    "cooldown": 5
+  }
+}

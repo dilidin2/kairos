@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "timers": {
+    "pausa": {
+      "interval_minutes": 30,
+      "messages": [
+        "⏰ Remember to take a break and look away from the screen",
+        "⏰ Have you moved in the last 30 minutes?"
+      ],
+      "shuffle_messages": true
+    },
+    "anniversario": {
+      "interval_minutes": 60,
+      "messages": [
+        "⏰ One hour passed, keep it up!"
+      ],
+      "shuffle_messages": false
+    }
+  }
+}

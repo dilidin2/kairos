@@ -1,0 +1,7 @@
+{
+  "unlock": "🏆 {user} unlocked the trophy \"{name}\"!",
+  "big_winner": {
+    "name": "Big Winner",
+    "message": "🏆 {user} unlocked the trophy \"{name}\"!"
+  }
+}
