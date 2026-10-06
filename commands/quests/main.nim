@@ -18,7 +18,8 @@ import simpleQuests
 ## `periodic_quest_call` minutes the LLM picks a quest and the users from
 ## the pool and announces the quest in character. Completion is verified
 ## periodically with a yes/no precheck; on expiry the "defeated" message
-## goes out. The simple quests (simple_quests.jsonc) are the fallback
+## goes out, followed by the separate failure message from config.json.
+## The simple quests (simple_quests.jsonc) are the fallback
 ## when the LLM is inactive or fails.
 ##
 ## All internal prompts are in English; `bot_language` (global config)
@@ -31,6 +32,9 @@ const
   ## LLM attempts to pick a valid quest
   DefaultCheckTickMs = 15_000
   ## quest check loop period
+  DefaultQuestFailedMessage = "You have failed the quest!"
+  ## separate message sent when a quest times out (translatable,
+  ## quest_failed_message in config.json)
 
 type
   QuestDefinition* = object
@@ -75,6 +79,7 @@ type
     inactiveMin*: int
     maxPickAttempts*: int
     checkTickMs*: int
+    questFailedMsg*: string
     definitions*: Table[string, QuestDefinition]
     simpleQuests*: seq[SimpleQuest]
     pool*: seq[string]
@@ -224,15 +229,18 @@ proc buildPrecheckPrompt(q: ActiveQuest, language: string): string =
     "Here are the chat messages from the user(s) since the quest started:\n" &
     q.transcript.join("\n") & "\n" &
     "Respond with ONLY a JSON object: " &
-    "{\"completed\": \"yes\" | \"no\", \"message_if_completed\": \"...\"}. " &
+    "{\"completed\": \"yes\" | \"no\", \"message\": \"...\"}. " &
     "No preamble, no explanation, no markdown code fences (do NOT wrap " &
     "the JSON in ```json): the first character of your reply must be { " &
     "and the last one }. " &
-    "If the quest is NOT completed, set \"completed\" to \"no\" and leave " &
-    "\"message_if_completed\" as an empty string. " &
+    "\"message\" is ALWAYS required and must never be empty. " &
     "If it IS completed, set \"completed\" to \"yes\" and write in " &
-    "\"message_if_completed\" a brief in-character congratulation as the " &
-    "personality, addressing the user(s) by their username(s) and thanking them. " &
+    "\"message\" a brief in-character congratulation as the personality, " &
+    "addressing the user(s) by their username(s) and thanking them. " &
+    "If it is NOT completed, set \"completed\" to \"no\" and write in " &
+    "\"message\" a brief in-character reply as the personality explaining " &
+    "WHY you are not yet convinced that the quest is done, addressing the " &
+    "user(s) by their username(s) and guiding them toward the goal. " &
     "Language: " & language & "."
 
 proc buildDefeatPrompt(q: ActiveQuest, language: string): string =
@@ -294,6 +302,9 @@ proc finishQuestTimeout(ctx: PluginContext, state: QuestState,
       warn "[PLUGIN] quests: LLM defeat message is empty for ", q.instanceId
   else:
     await ctx.send("⏰ Time's up, @" & q.users[0] & "! The quest is over.")
+  # separate, translatable failure message (only on expiry, never on a
+  # precheck "no")
+  await ctx.send(state.questFailedMsg)
   ctx.broadcastEvent(PeerEvent(eventType: "quest_done",
                                user: q.users[0], detail: "abandoned"))
 
@@ -531,15 +542,20 @@ proc checkLoop(ctx: PluginContext, state: QuestState) {.async.} =
             let n = node.get()
             if n.hasKey("completed") and n["completed"].kind == JString:
               completed = n["completed"].getStr.strip().toLowerAscii() == "yes"
-            if completed and n.hasKey("message_if_completed") and
-                n["message_if_completed"].kind == JString:
-              message = n["message_if_completed"].getStr
+            if n.hasKey("message") and n["message"].kind == JString:
+              message = n["message"].getStr
           let hadNewMessages =
             q.transcript.len > lastTranscriptLen.getOrDefault(instId, 0)
           lastTranscriptLen[instId] = q.transcript.len
           if not completed and hadNewMessages:
             info "[PLUGIN] quests: precheck ", instId,
                  " — rejected the latest answer(s)"
+            if message.len > 0:
+              try:
+                await ctx.send(message)
+              except CatchableError as e:
+                echo "[PLUGIN] quests: precheck rejection send failed for ",
+                     instId, ": ", e.msg
           if completed:
             var ann =
               if message.len > 0:
@@ -558,10 +574,11 @@ proc checkLoop(ctx: PluginContext, state: QuestState) {.async.} =
               echo "[PLUGIN] quests: completion send failed for ", instId, ": ", e.msg
             removeActive(state, instId)
 
-proc loadQuestConfig(path: string): (int, int, int) =
-  ## (inactive_minutes, max_pick_attempts, check_tick_ms) from config.json;
-  ## defaults if missing
-  result = (DefaultInactiveMinutes, DefaultMaxPickAttempts, DefaultCheckTickMs)
+proc loadQuestConfig(path: string): (int, int, int, string) =
+  ## (inactive_minutes, max_pick_attempts, check_tick_ms, quest_failed_message)
+  ## from config.json; defaults if missing
+  result = (DefaultInactiveMinutes, DefaultMaxPickAttempts, DefaultCheckTickMs,
+            DefaultQuestFailedMessage)
   if not fileExists(path):
     return
   let node = loadJson(path)
@@ -576,6 +593,9 @@ proc loadQuestConfig(path: string): (int, int, int) =
   if node.hasKey("check_tick_ms") and node["check_tick_ms"].kind == JInt:
     let v = node["check_tick_ms"].getInt
     if v > 0: result[2] = v
+  if node.hasKey("quest_failed_message") and node["quest_failed_message"].kind == JString:
+    let v = node["quest_failed_message"].getStr
+    if v.len > 0: result[3] = v
 
 # --- Registration ---------------------------------------------------------------
 
@@ -591,7 +611,8 @@ proc register*(ctx: PluginContext) =
     echo "[PLUGIN] quests: periodic_quest_call not valid in config"
     return
 
-  let (inactiveMin, maxPick, checkTick) = loadQuestConfig(ctx.dir / "config.json")
+  let (inactiveMin, maxPick, checkTick, failedMsg) =
+    loadQuestConfig(ctx.dir / "config.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
   let state = QuestState(
     cfg: cfg,
@@ -599,6 +620,7 @@ proc register*(ctx: PluginContext) =
     inactiveMin: inactiveMin,
     maxPickAttempts: maxPick,
     checkTickMs: checkTick,
+    questFailedMsg: failedMsg,
     definitions: loadDefinitions(ctx.dir / "quest_definitions.json"),
     simpleQuests: loadSimpleQuests(ctx.dir / "simple_quests.jsonc"),
     pool: @[],
