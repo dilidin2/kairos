@@ -49,9 +49,9 @@ nimble install
 
 ## Configuration
 
-Copy `config/bot_config.json.example` to `config/bot_config.json` and edit the values.
+`config/bot_config.json.example` is copied to `config/bot_config.json` automatically on first run — edit the values afterwards.
 
-The token files (`data/bot_token.json`, `data/broadcaster_token.json`) are created automatically after Twitch OAuth. Each plugin folder in `commands/` ships `.example` copies of its JSON files (`commands.json`, data files) — copy them to the real filenames, otherwise the plugins start with no commands registered, the `config.json` files in each plugin folder has the "enabled" key on true by default; edit those files to disable a specific plugin by setting it to false.
+The token files (`data/bot_token.json`, `data/broadcaster_token.json`) are created automatically after Twitch OAuth. Each plugin folder in `commands/` ships `.example` copies of its JSON files (`commands.json`, data files); they are also copied to the real filenames on first run. The `config.json` files in each plugin folder have the "enabled" key on true by default; edit those files to disable a specific plugin by setting it to false.
 
 Set the `TwitchClientId` in `src/kairosbot/config/config.nim` if you plan on forking and using your client id.
 
