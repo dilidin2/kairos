@@ -18,7 +18,9 @@ data/*.json
 
 # Plugin commands/data files (the .example versions are tracked)
 commands/*/*.json
+commands/*/*.jsonc
 !commands/*/*.json.example
+!commands/*/*.jsonc.example
 
 # Logs
 logs/
