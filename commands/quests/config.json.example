@@ -3,5 +3,6 @@
   "inactive_minutes": 10,
   "max_pick_attempts": 3,
   "check_tick_ms": 15000,
-  "quest_failed_message": "You have failed the quest!"
+  "quest_failed_message_single": "You have failed the quest!",
+  "quest_failed_message_multi": "You have failed the quest!"
 }

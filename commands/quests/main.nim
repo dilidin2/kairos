@@ -32,9 +32,11 @@ const
   ## LLM attempts to pick a valid quest
   DefaultCheckTickMs = 15_000
   ## quest check loop period
-  DefaultQuestFailedMessage = "You have failed the quest!"
-  ## separate message sent when a quest times out (translatable,
-  ## quest_failed_message in config.json)
+  DefaultQuestFailedMsgSingle = "You have failed the quest!"
+  DefaultQuestFailedMsgMulti = "You have failed the quest!"
+  ## separate messages sent when a quest times out (translatable,
+  ## quest_failed_message_single / quest_failed_message_multi in
+  ## config.json)
 
 type
   QuestDefinition* = object
@@ -79,7 +81,8 @@ type
     inactiveMin*: int
     maxPickAttempts*: int
     checkTickMs*: int
-    questFailedMsg*: string
+    questFailedMsgSingle*: string
+    questFailedMsgMulti*: string
     definitions*: Table[string, QuestDefinition]
     simpleQuests*: seq[SimpleQuest]
     pool*: seq[string]
@@ -304,7 +307,10 @@ proc finishQuestTimeout(ctx: PluginContext, state: QuestState,
     await ctx.send("⏰ Time's up, @" & q.users[0] & "! The quest is over.")
   # separate, translatable failure message (only on expiry, never on a
   # precheck "no")
-  await ctx.send(state.questFailedMsg)
+  let failedMsg =
+    if q.users.len == 1: state.questFailedMsgSingle
+    else: state.questFailedMsgMulti
+  await ctx.send(failedMsg)
   ctx.broadcastEvent(PeerEvent(eventType: "quest_done",
                                user: q.users[0], detail: "abandoned"))
 
@@ -574,11 +580,12 @@ proc checkLoop(ctx: PluginContext, state: QuestState) {.async.} =
               echo "[PLUGIN] quests: completion send failed for ", instId, ": ", e.msg
             removeActive(state, instId)
 
-proc loadQuestConfig(path: string): (int, int, int, string) =
-  ## (inactive_minutes, max_pick_attempts, check_tick_ms, quest_failed_message)
-  ## from config.json; defaults if missing
+proc loadQuestConfig(path: string): (int, int, int, string, string) =
+  ## (inactive_minutes, max_pick_attempts, check_tick_ms,
+  ## quest_failed_message_single, quest_failed_message_multi) from
+  ## config.json; defaults if missing
   result = (DefaultInactiveMinutes, DefaultMaxPickAttempts, DefaultCheckTickMs,
-            DefaultQuestFailedMessage)
+            DefaultQuestFailedMsgSingle, DefaultQuestFailedMsgMulti)
   if not fileExists(path):
     return
   let node = loadJson(path)
@@ -593,9 +600,14 @@ proc loadQuestConfig(path: string): (int, int, int, string) =
   if node.hasKey("check_tick_ms") and node["check_tick_ms"].kind == JInt:
     let v = node["check_tick_ms"].getInt
     if v > 0: result[2] = v
-  if node.hasKey("quest_failed_message") and node["quest_failed_message"].kind == JString:
-    let v = node["quest_failed_message"].getStr
+  if node.hasKey("quest_failed_message_single") and
+      node["quest_failed_message_single"].kind == JString:
+    let v = node["quest_failed_message_single"].getStr
     if v.len > 0: result[3] = v
+  if node.hasKey("quest_failed_message_multi") and
+      node["quest_failed_message_multi"].kind == JString:
+    let v = node["quest_failed_message_multi"].getStr
+    if v.len > 0: result[4] = v
 
 # --- Registration ---------------------------------------------------------------
 
@@ -611,7 +623,7 @@ proc register*(ctx: PluginContext) =
     echo "[PLUGIN] quests: periodic_quest_call not valid in config"
     return
 
-  let (inactiveMin, maxPick, checkTick, failedMsg) =
+  let (inactiveMin, maxPick, checkTick, failedSingle, failedMulti) =
     loadQuestConfig(ctx.dir / "config.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
   let state = QuestState(
@@ -620,7 +632,8 @@ proc register*(ctx: PluginContext) =
     inactiveMin: inactiveMin,
     maxPickAttempts: maxPick,
     checkTickMs: checkTick,
-    questFailedMsg: failedMsg,
+    questFailedMsgSingle: failedSingle,
+    questFailedMsgMulti: failedMulti,
     definitions: loadDefinitions(ctx.dir / "quest_definitions.json"),
     simpleQuests: loadSimpleQuests(ctx.dir / "simple_quests.jsonc"),
     pool: @[],
