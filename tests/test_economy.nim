@@ -101,7 +101,9 @@ suite "EconomyPlugin":
       let cmd = router.registry.get("balance").get()
       await cmd_econ.cmdBalance(mkMsg("!balance"), cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("your balance: 100 🪙")
+      check sent.len == 1
+      # the balance value is data: it must appear in any translation
+      check sent[0].contains("100")
     waitFor(runTest())
 
   test "cmdPay gives away coins and handles errors":
@@ -151,8 +153,10 @@ suite "EconomyPlugin":
 
       await cmd_econ.cmdRich(mkMsg("!rich"), cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("Top balances")
+      # usernames are data: they must appear in any translation
+      check sent.len == 1
       check sent[0].contains("alice")
+      check sent[0].contains("bob")
       check sent[0].contains("🥇")
     waitFor(runTest())
 
@@ -175,8 +179,13 @@ suite "EconomyPlugin":
 
       check svc.balances["luigi"] == 1050
       check svc.firstToThousand == "luigi"
+      # the trophy name comes from the plugin data (trophies.json): derive
+      # the expectation from the same source, never hardcode the string
+      let ft = trophyText(cmd_econ.trophyTexts, "first_to", "First to 1000",
+                          "🏆 {user} unlocked the trophy \"{name}\"!")
+      let expected = ft.name.replace("{amount}", $svc.firstTo)
       let trophies = router.trophyTracker.getUserTrophies("luigi")
-      check trophies.anyIt(it.name == "First to 1000")
+      check trophies.anyIt(it.name == expected)
     waitFor(runTest())
 
   test "loadPayrollConfig reads values and falls back to defaults":
@@ -226,10 +235,13 @@ suite "EconomyPlugin":
       # 60 min after entry: due -> paid + trophy + public announce
       await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 3600)
       check svc.balances["mario"] == 110
-      check tracker.getUserTrophies("mario").anyIt(it.name == "First Paycheck")
+      # the trophy name comes from the rule registered from the plugin data
+      let payRule = tracker.rules["payroll"][0]
+      check tracker.getUserTrophies("mario").anyIt(it.name == payRule.name)
       let sent = sentMessages()
-      check sent.anyIt(it.contains("unlocked") and it.contains("First Paycheck"))
-      check sent.anyIt(it.contains("mario") and it.contains("added 10"))
+      check sent.anyIt(it.contains(payRule.name))
+      # username and amount are data: they must appear in any translation
+      check sent.anyIt(it.contains("mario") and it.contains("10"))
       # second pay an hour later: balance grows, no duplicate trophy
       await cmd_econ.payrollTick(chat, tracker, cfg, now0 + 7200)
       check svc.balances["mario"] == 120

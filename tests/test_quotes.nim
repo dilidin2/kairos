@@ -89,10 +89,10 @@ suite "QuotesPlugin":
       let cmd = router.registry.get("ding").get()
       # first ding
       await cmd_quotes.cmdDing(mkMsg("!ding"), cmd, router)
-      # second ding: rejected
+      # second ding: rejected (the username is data: any translation has it)
       await cmd_quotes.cmdDing(mkMsg("!ding"), cmd, router)
       let sent = sentMessages()
-      check sent[1].contains("another event is running")
+      check sent[1].contains("mario")
     waitFor(runTest())
 
   test "cmdDong records the answer during the window":
@@ -129,7 +129,7 @@ suite "QuotesPlugin":
       msg.args = "dream"
       await cmd_quotes.cmdDong(msg, dong, router)
       let sent = sentMessages()
-      check sent[0].contains("no ding is in progress")
+      check sent[0].contains("mario")
     waitFor(runTest())
 
   test "cmdRace opens the window in race mode":

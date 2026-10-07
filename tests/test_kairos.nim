@@ -176,7 +176,7 @@ suite "KairosEntry":
       check chat.botId == "uid-broadcaster"
       check chat.kind == tkBroadcaster
       check chat.onMessage != nil
-      check router.registry.listAll().len == 25  # info(4) + games(4) + trophies(1) + fun(4) + economy(3) + quotes(3) + quiz(1) + stocks(4) + vanish(1)
+      check router.registry.listAll().len == 29  # info(4) + games(4) + trophies(1) + fun(4) + economy(3) + quotes(3) + quiz(1) + stocks(8) + vanish(1); quests disabled in the test config
       check router.registry.get("slots").isSome()
       check router.registry.get("8ball").isSome()
       check router.registry.get("trophy").isSome()
