@@ -4,6 +4,7 @@ import ./utils
 import ../src/kairosbot/commands/registry
 import ../src/kairosbot/core/window_guard
 import ../src/kairosbot/plugin
+import ../src/kairosbot/utils/answers
 import ../commands/quotes/main as cmd_quotes
 import ../commands/quotes/quote_game as qg
 
@@ -18,19 +19,18 @@ suite "QuoteGame":
     check r.start.len > 0
     check r.ending.len > 0
 
-  test "norm normalizes lowercase/trim/spaces":
-    check qg.norm("  Dream  ") == "dream"
-    check qg.norm("A  B") == "a b"
-    check qg.norm("  ") == ""
+  test "normAnswer normalizes lowercase/trim/spaces":
+    check answers.normAnswer("  Dream  ") == "dream"
+    check answers.normAnswer("A  B") == "a b"
+    check answers.normAnswer("  ") == ""
 
-  test "isCorrect: exact match, variant and mismatch":
-    let g = qg.newQuoteGame()
-    g.answer = "dream"
-    g.variants = @["sogno"]
-    check g.isCorrect("Dream")
-    check g.isCorrect("  dream  ")
-    check g.isCorrect("sogno")
-    check not g.isCorrect("car")
+  test "answerMatches: exact match, variant and mismatch":
+    let answer = "dream"
+    let variants = @["sogno"]
+    check answers.answerMatches(answer, variants, "Dream")
+    check answers.answerMatches(answer, variants, "  dream  ")
+    check answers.answerMatches(answer, variants, "sogno")
+    check not answers.answerMatches(answer, variants, "car")
 
   test "complete: ding replaces the blank, race concatenates":
     let g = qg.newQuoteGame()
