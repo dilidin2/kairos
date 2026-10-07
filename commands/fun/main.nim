@@ -13,6 +13,29 @@ var
   ## Content lists read from content.json: roasts, jokes, truths, dares
   trophyTexts*: Table[string, TrophyText]
   ## Translatable trophy texts from trophies.json
+  msgTexts*: Table[string, string]
+  ## Translatable user-facing chat texts from messages.json
+
+# --- Texts --------------------------------------------------------------------
+
+proc loadMsgs(path: string): Table[string, string] =
+  ## Loads messages.json: flat key -> template pairs
+  result = initTable[string, string]()
+  if not fileExists(path):
+    return
+  let node = loadJson(path)
+  if node.kind != JObject:
+    return
+  for key, value in node.pairs:
+    if value.kind == JString:
+      result[key] = value.getStr
+
+proc mtext(key, fallback: string): string =
+  ## A user-facing message template (messages.json) with English fallback
+  if msgTexts.hasKey(key):
+    result = msgTexts[key]
+  else:
+    result = fallback
 
 # --- Contenuti -----------------------------------------------------------------------
 
@@ -78,7 +101,8 @@ proc cmdRoast*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} 
   let target = msg.args.strip()
   let roast = pick("roasts")
   if roast.len == 0:
-    await safeSend(router.chat, "The roasts are still loading, hang tight!")
+    await safeSend(router.chat, mtext("roasts_loading",
+      "The roasts are still loading, hang tight!"))
     return
   let who = if target.len > 0: target else: msg.username
   let trophies = router.trophyTracker.recordEvent(msg.username, "roast", "roast")
@@ -89,7 +113,8 @@ proc cmdJoke*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !joke - random joke
   let joke = pick("jokes")
   if joke.len == 0:
-    await safeSend(router.chat, "The jokes are still loading, hang tight!")
+    await safeSend(router.chat, mtext("jokes_loading",
+      "The jokes are still loading, hang tight!"))
     return
   let trophies = router.trophyTracker.recordEvent(msg.username, "joke", "joke")
   await safeSend(router.chat, msg.username & ", " & joke)
@@ -99,7 +124,8 @@ proc cmdTruth*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} 
   ## !truth - random truth about the user
   let truth = pick("truths")
   if truth.len == 0:
-    await safeSend(router.chat, "The truths are still loading, hang tight!")
+    await safeSend(router.chat, mtext("truths_loading",
+      "The truths are still loading, hang tight!"))
     return
   await safeSend(router.chat, msg.username & ", " & truth)
 
@@ -107,9 +133,11 @@ proc cmdDare*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !dare - random dare for the user
   let dare = pick("dares")
   if dare.len == 0:
-    await safeSend(router.chat, "The dares are still loading, hang tight!")
+    await safeSend(router.chat, mtext("dares_loading",
+      "The dares are still loading, hang tight!"))
     return
-  await safeSend(router.chat, msg.username & ", your dare: " & dare)
+  await safeSend(router.chat, msg.username & ", " &
+    mtext("dare_label", "your dare:") & " " & dare)
 
 # --- Registration ------------------------------------------------------------------------
 
@@ -119,6 +147,7 @@ proc register*(ctx: PluginContext) =
     return
   loadContent(ctx.dir / "content.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
+  msgTexts = loadMsgs(ctx.dir / "messages.json")
   let specs = loadCommandSpecs(ctx.dir / "commands.json")
   var handlers: Table[string, CommandHandler]
   handlers["roast"] = cmdRoast

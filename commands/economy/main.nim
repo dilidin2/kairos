@@ -19,10 +19,33 @@ var
   ## Metadata read from commands.json in register()
   trophyTexts*: Table[string, TrophyText]
   ## Translatable one-off trophy texts from trophies.json
+  msgTexts*: Table[string, string]
+  ## Translatable user-facing chat texts from messages.json
   nextPayAt*: Table[string, int]
   ## username (lowercase) -> unix seconds of the user's next payroll
   payrollPath: string
   ## where nextPayAt is persisted (data/economy_payroll.json)
+
+# --- Texts --------------------------------------------------------------------
+
+proc loadMsgs(path: string): Table[string, string] =
+  ## Loads messages.json: flat key -> template pairs
+  result = initTable[string, string]()
+  if not fileExists(path):
+    return
+  let node = loadJson(path)
+  if node.kind != JObject:
+    return
+  for key, value in node.pairs:
+    if value.kind == JString:
+      result[key] = value.getStr
+
+proc mtext(key, fallback: string): string =
+  ## A user-facing message template (messages.json) with English fallback
+  if msgTexts.hasKey(key):
+    result = msgTexts[key]
+  else:
+    result = fallback
 
 # --- Parameters -----------------------------------------------------------------------
 
@@ -134,18 +157,25 @@ proc createPayRules*(): seq[TrophyRule] =
 proc cmdBalance*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !balance - current balance
   let bal = svc.getBalance(msg.username)
-  await safeSend(router.chat, msg.username & ", your balance: " & $bal & " 🪙")
+  await safeSend(router.chat,
+    mtext("balance", "{user}, your balance: {balance} 🪙")
+      .replace("{user}", msg.username)
+      .replace("{balance}", $bal))
 
 proc cmdPay*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !pay <user> <amount> - give coins
   let parts = msg.args.strip().splitWhitespace()
   if parts.len != 2:
-    await safeSend(router.chat, msg.username & ", usage: !pay <user> <amount>")
+    await safeSend(router.chat,
+      mtext("pay_usage", "{user}, usage: !pay <user> <amount>")
+        .replace("{user}", msg.username))
     return
   let to = parts[0]
   var amount = 0
   if parseInt(parts[1], amount) == 0 or amount < 1:
-    await safeSend(router.chat, msg.username & ", enter a valid amount")
+    await safeSend(router.chat,
+      mtext("invalid_amount", "{user}, enter a valid amount")
+        .replace("{user}", msg.username))
     return
   if svc.transfer(msg.username, to, amount):
     let trophies = router.trophyTracker.recordEvent(msg.username, "pay", "pay")
@@ -160,11 +190,15 @@ proc cmdPay*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
       let msg = ft.message.replace("{user}", to).replace("{name}", ftName)
       await safeSend(router.chat, msg)
     await safeSend(router.chat,
-      msg.username & " gave " & $amount & " 🪙 to " & to & "!")
+      mtext("paid", "{user} gave {amount} 🪙 to {to}!")
+        .replace("{user}", msg.username)
+        .replace("{amount}", $amount)
+        .replace("{to}", to))
     await sendTrophyNotifs(router.chat, msg.username, trophies)
   else:
     await safeSend(router.chat,
-      msg.username & ", you can't afford that — check your balance")
+      mtext("cannot_afford", "{user}, you can't afford that — check your balance")
+      .replace("{user}", msg.username))
 
 proc cmdRich*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !rich - top balances (N from the `rich_top` param, default 5)
@@ -176,14 +210,16 @@ proc cmdRich*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
       n = v
   let top = svc.topBalances(n)
   if top.len == 0:
-    await safeSend(router.chat, "No balances yet — be the first to play!")
+    await safeSend(router.chat, mtext("rich_empty",
+      "No balances yet — be the first to play!"))
     return
   let medals = @["🥇", "🥈", "🥉"]
   var lines: seq[string] = @[]
   for i, (user, bal) in top:
     let medal = if i < medals.len: medals[i] else: $(i + 1) & "."
     lines.add(medal & " " & user & ": " & $bal & " 🪙")
-  await safeSend(router.chat, "Top balances:\n" & lines.join("\n"))
+  await safeSend(router.chat,
+    mtext("rich_header", "Top balances:") & "\n" & lines.join("\n"))
 
 # --- Registration ------------------------------------------------------------------------
 
@@ -198,6 +234,7 @@ proc register*(ctx: PluginContext) =
 
   specs = loadCommandSpecs(ctx.dir / "commands.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
+  msgTexts = loadMsgs(ctx.dir / "messages.json")
   var handlers: Table[string, CommandHandler]
   handlers["balance"] = cmdBalance
   handlers["pay"] = cmdPay

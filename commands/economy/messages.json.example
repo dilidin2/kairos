@@ -1,0 +1,19 @@
+{
+  // User-facing chat texts for the economy plugin. Every key maps to a
+  // template; placeholders use the {name} syntax. Missing keys fall back
+  // to the English defaults in main.nim.
+  // (The payroll announcement lives in economy.json, not here.)
+
+  // --- !balance ---
+  "balance": "{user}, your balance: {balance} 🪙",
+
+  // --- !pay ---
+  "pay_usage": "{user}, usage: !pay <user> <amount>",
+  "invalid_amount": "{user}, enter a valid amount",
+  "paid": "{user} gave {amount} 🪙 to {to}!",
+  "cannot_afford": "{user}, you can't afford that — check your balance",
+
+  // --- !rich ---
+  "rich_empty": "No balances yet — be the first to play!",
+  "rich_header": "Top balances:"
+}

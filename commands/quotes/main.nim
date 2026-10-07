@@ -3,6 +3,7 @@ import std/[strutils, tables, os, math, asyncdispatch, options, json]
 import kairosbot/plugin
 import kairosbot/core/command_router
 import kairosbot/commands/registry
+import kairosbot/data/persistence
 import kairosbot/twitch/chat
 import kairosbot/utils/chat_helpers
 import ./quote_game
@@ -18,6 +19,29 @@ var
   ## Shared state of !ding and !race
   specs*: Table[string, CommandSpec]
   ## Metadata read from commands.json in register()
+  msgTexts*: Table[string, string]
+  ## Translatable user-facing chat texts from messages.json
+
+# --- Texts --------------------------------------------------------------------
+
+proc loadMsgs(path: string): Table[string, string] =
+  ## Loads messages.json: flat key -> template pairs
+  result = initTable[string, string]()
+  if not fileExists(path):
+    return
+  let node = loadJson(path)
+  if node.kind != JObject:
+    return
+  for key, value in node.pairs:
+    if value.kind == JString:
+      result[key] = value.getStr
+
+proc mtext(key, fallback: string): string =
+  ## A user-facing message template (messages.json) with English fallback
+  if msgTexts.hasKey(key):
+    result = msgTexts[key]
+  else:
+    result = fallback
 
 proc windowSeconds(): int =
   ## Window length from the `window_seconds` param of !ding
@@ -48,17 +72,21 @@ proc publishResults*(router: CommandRouter, winnerVerb: string) {.async.} =
   let (lines, winners) = collectResults(game)
   var text: string
   if lines.len == 0:
-    text = "⏰ Time's up! Nobody answered."
+    text = mtext("time_up_no_answers", "⏰ Time's up! Nobody answered.")
   else:
     var body: seq[string] = @[]
     for (user, phrase) in lines:
       body.add(user & ": " & phrase)
-    text = "⏰ Time's up! The answers:\n" & body.join("\n")
-  text &= "\nThe answer was: \"" & game.answer & "\""
+    text = mtext("time_up_answers", "⏰ Time's up! The answers:\n{lines}")
+      .replace("{lines}", body.join("\n"))
+  text &= "\n" & mtext("answer_was", "The answer was: \"{answer}\"")
+      .replace("{answer}", game.answer)
   if winners.len > 0:
-    text &= "\n🏆 " & winners.join(", ") & " " & winnerVerb
+    text &= "\n" & mtext("winners_line", "🏆 {winners} {verb}")
+        .replace("{winners}", winners.join(", "))
+        .replace("{verb}", winnerVerb)
   else:
-    text &= "\nNobody got it right."
+    text &= "\n" & mtext("nobody_right", "Nobody got it right.")
   game.reset()
   await safeSend(router.chat, text)
 
@@ -69,12 +97,17 @@ proc cmdDing*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   let active = pluginCtx.activeWindow()
   if active.isSome:
     let (name, secs) = active.get()
-    await safeSend(router.chat, msg.username &
-      ", another event is running: " & name & " (" & $int(round(secs)) & "s left)")
+    await safeSend(router.chat,
+      mtext("other_event",
+            "{user}, another event is running: {name} ({secs}s left)")
+        .replace("{user}", msg.username)
+        .replace("{name}", name)
+        .replace("{secs}", $int(round(secs))))
     return
   let phrase = pickDingPhrase()
   if phrase.blank.len == 0:
-    await safeSend(router.chat, "No phrases available right now.")
+    await safeSend(router.chat, mtext("no_phrases",
+      "No phrases available right now."))
     return
   game.reset()
   game.active = true
@@ -85,25 +118,38 @@ proc cmdDing*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
 
   let secs = windowSeconds()
   proc onExpire() {.async.} =
-    await publishResults(router, "got it right!")
+    await publishResults(router, mtext("ding_won", "got it right!"))
   if not pluginCtx.beginWindow(WindowName, secs, onExpire):
     game.reset()
-    await safeSend(router.chat, msg.username & ", another event is running.")
+    await safeSend(router.chat,
+      mtext("other_event_short",
+            "{user}, another event is running.").replace("{user}", msg.username))
     return
-  await safeSend(router.chat, "🔔 " & msg.username & " started a ding! \"" &
-    game.displayText & "\" Answer with !dong <word> (" & $secs & "s)")
+  await safeSend(router.chat,
+    mtext("ding_started",
+          "🔔 {user} started a ding! \"{text}\" Answer with !dong <word> ({secs}s)")
+        .replace("{user}", msg.username)
+        .replace("{text}", game.displayText)
+        .replace("{secs}", $secs))
 
 proc cmdDong*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !dong <word> - records the answer (during the ding window)
   if not game.active or game.mode != qmDing:
-    await safeSend(router.chat, msg.username & ", no ding is in progress")
+    await safeSend(router.chat,
+      mtext("no_ding", "{user}, no ding is in progress")
+        .replace("{user}", msg.username))
     return
   let resp = msg.args.strip()
   if resp.len == 0:
-    await safeSend(router.chat, msg.username & ", answer with !dong <word>")
+    await safeSend(router.chat,
+      mtext("dong_usage", "{user}, answer with !dong <word>")
+        .replace("{user}", msg.username))
     return
   game.responses[msg.username.toLowerAscii()] = resp
-  await safeSend(router.chat, msg.username & ", got it: " & resp)
+  await safeSend(router.chat,
+    mtext("got_it", "{user}, got it: {resp}")
+      .replace("{user}", msg.username)
+      .replace("{resp}", resp))
 
 proc cmdRace*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !race [continuation] - starts the incomplete phrase or records the continuation
@@ -111,22 +157,32 @@ proc cmdRace*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   if resp.len > 0:
     # records the continuation
     if not game.active or game.mode != qmRace:
-      await safeSend(router.chat, msg.username & ", no race is in progress")
+      await safeSend(router.chat,
+        mtext("no_race", "{user}, no race is in progress")
+          .replace("{user}", msg.username))
       return
     game.responses[msg.username.toLowerAscii()] = resp
-    await safeSend(router.chat, msg.username & ", got it: " & resp)
+    await safeSend(router.chat,
+      mtext("got_it", "{user}, got it: {resp}")
+        .replace("{user}", msg.username)
+        .replace("{resp}", resp))
     return
 
   # starts a new race
   let active = pluginCtx.activeWindow()
   if active.isSome:
     let (name, secs) = active.get()
-    await safeSend(router.chat, msg.username &
-      ", another event is running: " & name & " (" & $int(round(secs)) & "s left)")
+    await safeSend(router.chat,
+      mtext("other_event",
+            "{user}, another event is running: {name} ({secs}s left)")
+        .replace("{user}", msg.username)
+        .replace("{name}", name)
+        .replace("{secs}", $int(round(secs))))
     return
   let phrase = pickRacePhrase()
   if phrase.start.len == 0:
-    await safeSend(router.chat, "No phrases available right now.")
+    await safeSend(router.chat, mtext("no_phrases",
+      "No phrases available right now."))
     return
   game.reset()
   game.active = true
@@ -137,14 +193,20 @@ proc cmdRace*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
 
   let secs = windowSeconds()
   proc onExpire() {.async.} =
-    await publishResults(router, "completed it!")
+    await publishResults(router, mtext("race_won", "completed it!"))
   if not pluginCtx.beginWindow(WindowName, secs, onExpire):
     game.reset()
-    await safeSend(router.chat, msg.username & ", another event is running.")
+    await safeSend(router.chat,
+      mtext("other_event_short",
+            "{user}, another event is running.").replace("{user}", msg.username))
     return
-  await safeSend(router.chat, "🏁 " & msg.username & " started a race! \"" &
-    game.displayText & "...\" Complete it with !race <your continuation> (" &
-    $secs & "s)")
+  await safeSend(router.chat,
+    mtext("race_started",
+          "🏁 {user} started a race! \"{text}...\" " &
+          "Complete it with !race <your continuation> ({secs}s)")
+        .replace("{user}", msg.username)
+        .replace("{text}", game.displayText)
+        .replace("{secs}", $secs))
 
 # --- Registration ------------------------------------------------------------------------
 
@@ -154,6 +216,7 @@ proc register*(ctx: PluginContext) =
     return
   pluginCtx = ctx
   loadPhrases(ctx.dir / "phrases.json")
+  msgTexts = loadMsgs(ctx.dir / "messages.json")
   var handlers: Table[string, CommandHandler]
   handlers["ding"] = cmdDing
   handlers["dong"] = cmdDong

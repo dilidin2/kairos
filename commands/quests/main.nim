@@ -96,6 +96,29 @@ type
 var
   trophyTexts: Table[string, TrophyText]
   ## Translatable one-off trophy texts from trophies.json
+  msgTexts*: Table[string, string]
+  ## Translatable user-facing chat texts from messages.json
+
+# --- Texts --------------------------------------------------------------------
+
+proc loadMsgs(path: string): Table[string, string] =
+  ## Loads messages.json: flat key -> template pairs
+  result = initTable[string, string]()
+  if not fileExists(path):
+    return
+  let node = loadJson(path)
+  if node.kind != JObject:
+    return
+  for key, value in node.pairs:
+    if value.kind == JString:
+      result[key] = value.getStr
+
+proc mtext(key, fallback: string): string =
+  ## A user-facing message template (messages.json) with English fallback
+  if msgTexts.hasKey(key):
+    result = msgTexts[key]
+  else:
+    result = fallback
 
 # --- Helpers --------------------------------------------------------------------
 
@@ -313,7 +336,8 @@ proc finishQuestTimeout(ctx: PluginContext, state: QuestState,
     else:
       warn "[PLUGIN] quests: LLM defeat message is empty for ", q.instanceId
   else:
-    await ctx.send("⏰ Time's up, @" & q.users[0] & "! The quest is over.")
+    await ctx.send(mtext("time_up", "⏰ Time's up, @{user}! The quest is over.")
+                   .replace("{user}", q.users[0]))
   # separate, translatable failure message (only on expiry, never on a
   # precheck "no")
   let failedMsg =
@@ -381,7 +405,9 @@ proc startSimpleQuest(ctx: PluginContext, state: QuestState) {.async.} =
   removeFromPool(state, user)
   markSimpleUsed(state, sq.id)
   ctx.setBusy("announcing quest")
-  await ctx.send("📜 @" & user & ", your quest: " & sq.text)
+  await ctx.send(mtext("simple_announce", "📜 @{user}, your quest: {text}")
+                 .replace("{user}", user)
+                 .replace("{text}", sq.text))
   ctx.clearBusy()
   ctx.broadcastEvent(PeerEvent(eventType: "quest_active", user: user, detail: sq.id))
 
@@ -635,6 +661,7 @@ proc register*(ctx: PluginContext) =
   let (inactiveMin, maxPick, checkTick, failedSingle, failedMulti) =
     loadQuestConfig(ctx.dir / "config.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
+  msgTexts = loadMsgs(ctx.dir / "messages.json")
   let state = QuestState(
     cfg: cfg,
     channel: cfg.channel,
@@ -672,7 +699,9 @@ proc register*(ctx: PluginContext) =
     for instId in completed:
       let q = state.active[instId]
       removeActive(state, instId)
-      var ann = "🏆 " & q.users[0] & " completed the quest!"
+      var ann = mtext("completed",
+                      "🏆 {user} completed the quest!")
+                  .replace("{user}", q.users[0])
       if q.trophyResponse.len > 0:
         ann = ann & " " & q.trophyResponse
       await finishQuestComplete(ctx, state, q, ann)
@@ -690,7 +719,9 @@ proc register*(ctx: PluginContext) =
                                router: CommandRouter) {.async.} =
     let user = msg.username
     if user in state.pool:
-      await ctx.send(user & ", you're already up for a quest!")
+      await ctx.send(mtext("already_in_pool",
+                           "{user}, you're already up for a quest!")
+                     .replace("{user}", user))
       return
     var inActive = false
     for _, q in state.active.pairs:
@@ -698,15 +729,21 @@ proc register*(ctx: PluginContext) =
         inActive = true
         break
     if inActive:
-      await ctx.send(user & ", you already have an active quest!")
+      await ctx.send(mtext("has_active",
+                           "{user}, you already have an active quest!")
+                     .replace("{user}", user))
       return
     state.pool.add(user)
-    await ctx.send(user & ", you're up for a quest! 📜")
+    await ctx.send(mtext("added_to_pool",
+                         "{user}, you're up for a quest! 📜")
+                   .replace("{user}", user))
   handlers["noadventure"] = proc(msg: ChatMessage, cmd: Command,
                                  router: CommandRouter) {.async.} =
     let user = msg.username
     removeFromPool(state, user)
-    await ctx.send(user & ", you're out of the quest pool.")
+    await ctx.send(mtext("left_pool",
+                         "{user}, you're out of the quest pool.")
+                   .replace("{user}", user))
   handlers["quest"] = proc(msg: ChatMessage, cmd: Command,
                            router: CommandRouter) {.async.} =
     let user = msg.username
@@ -716,16 +753,22 @@ proc register*(ctx: PluginContext) =
         found = some(instId)
         break
     if found.isNone:
-      await ctx.send(user & ", you don't have an active quest.")
+      await ctx.send(mtext("no_active",
+                           "{user}, you don't have an active quest.")
+                     .replace("{user}", user))
       return
     let instId = found.get()
     let q = state.active[instId]
     if q.hintUsed:
-      await ctx.send(user & ", you already used your hint for this quest.")
+      await ctx.send(mtext("hint_used",
+                           "{user}, you already used your hint for this quest.")
+                     .replace("{user}", user))
       return
     state.active[instId].hintUsed = true
     if not q.isLlm:
-      await ctx.send("Your quest: " & q.objective)
+      await ctx.send(mtext("simple_objective",
+                           "Your quest: {objective}")
+                     .replace("{objective}", q.objective))
       return
     let resp = await state.llm.chatCompletion(
       @[LlmMessage(role: "user",

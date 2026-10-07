@@ -1,0 +1,26 @@
+{
+  // User-facing chat texts for the quests plugin. Every key maps to a
+  // template; placeholders use the {name} syntax. Missing keys fall back
+  // to the English defaults in main.nim.
+  // (The quest-failed messages live in config.json, the simple quest
+  // texts in simple_quests.jsonc, the LLM replies are generated.)
+
+  // --- !adventure / !noadventure ---
+  "already_in_pool": "{user}, you're already up for a quest!",
+  "has_active": "{user}, you already have an active quest!",
+  "added_to_pool": "{user}, you're up for a quest! 📜",
+  "left_pool": "{user}, you're out of the quest pool.",
+
+  // --- !quest (hint) ---
+  "no_active": "{user}, you don't have an active quest.",
+  "hint_used": "{user}, you already used your hint for this quest.",
+  // hint for a simple quest (no LLM): the quest text itself
+  "simple_objective": "Your quest: {objective}",
+
+  // --- simple quests ---
+  "simple_announce": "📜 @{user}, your quest: {text}",
+  // completion announcement (trophy response appended after)
+  "completed": "🏆 {user} completed the quest!",
+  // timeout for a simple quest (LLM quests get an in-character defeat)
+  "time_up": "⏰ Time's up, @{user}! The quest is over."
+}

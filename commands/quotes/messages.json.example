@@ -1,0 +1,33 @@
+{
+  // User-facing chat texts for the quotes plugin. Every key maps to a
+  // template; placeholders use the {name} syntax. Missing keys fall back
+  // to the English defaults in main.nim.
+
+  // --- shared ---
+  "other_event": "{user}, another event is running: {name} ({secs}s left)",
+  "other_event_short": "{user}, another event is running.",
+  "no_phrases": "No phrases available right now.",
+
+  // --- !ding ---
+  "no_ding": "{user}, no ding is in progress",
+  "dong_usage": "{user}, answer with !dong <word>",
+  "ding_started": "🔔 {user} started a ding! \"{text}\" Answer with !dong <word> ({secs}s)",
+
+  // --- !race ---
+  "no_race": "{user}, no race is in progress",
+  "race_started": "🏁 {user} started a race! \"{text}...\" Complete it with !race <your continuation> ({secs}s)",
+
+  // --- shared (answer recording) ---
+  "got_it": "{user}, got it: {resp}",
+
+  // --- results (window expired) ---
+  "time_up_no_answers": "⏰ Time's up! Nobody answered.",
+  // {lines} is the "user: phrase" list, one per line
+  "time_up_answers": "⏰ Time's up! The answers:\n{lines}",
+  "answer_was": "The answer was: \"{answer}\"",
+  "winners_line": "🏆 {winners} {verb}",
+  "nobody_right": "Nobody got it right.",
+  // verbs used in the winners line
+  "ding_won": "got it right!",
+  "race_won": "completed it!"
+}

@@ -1,0 +1,19 @@
+{
+  // User-facing chat texts for the quiz plugin. Every key maps to a
+  // template; placeholders use the {name} syntax. Missing keys fall back
+  // to the English defaults in main.nim.
+
+  // --- !quiz (answering) ---
+  "no_quiz": "{user}, no quiz is in progress",
+  "already_won": "{user}, the quiz is already won",
+  "won": "🎉 {user} won the quiz! The answer was: \"{answer}\"",
+  "wrong_answer": "{user}, nope, try again!",
+
+  // --- !quiz (starting) ---
+  "in_progress": "{user}, quiz in progress, {secs}s left, answer!",
+  "other_event": "{user}, another event is running: {name} ({secs}s left)",
+  "no_questions": "No questions available right now.",
+  // window expired with no winner
+  "time_up": "⏰ Time's up! The answer was: \"{answer}\"",
+  "started": "🧠 {user} started a quiz! [{category}] {question} Answer with !quiz <answer> ({secs}s)"
+}

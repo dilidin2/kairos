@@ -1,0 +1,27 @@
+{
+  // User-facing chat texts for the games plugin. Every key maps to a
+  // template; placeholders use the {name} syntax. Missing keys fall back
+  // to the English defaults in main.nim.
+  // (8-ball responses, slot symbols and flip outcomes live in
+  // commands.json params, not here.)
+
+  // --- !slots ---
+  "slot_win": "🎉 {line} 🎉 WIN!",
+  // suffix when the user also guessed the winning symbol
+  "slot_guess": " You even guessed the {symbol}!",
+  "slot_bet_lose": "Bet on {symbol}: {line} — nope, try again!",
+  "slot_lose": "{line} — nope, try again!",
+
+  // --- !flip (with a bet) ---
+  "flip_win": "You bet {bet} — WIN! 🎉",
+  "flip_lose": "You bet {bet} — lose.",
+
+  // --- !bet ---
+  "economy_unavailable": "{user}, the economy is not available",
+  "bet_usage": "{user}, usage: !bet <amount> <flip|slots>",
+  "invalid_amount": "{user}, enter a valid amount (min {min})",
+  "invalid_game": "{user}, bet on flip or slots",
+  "insufficient_funds": "{user}, you only have {balance} 🪙",
+  "bet_win": "You win {amount} 🪙! 🎉",
+  "bet_lose": "You lose {amount} 🪙."
+}

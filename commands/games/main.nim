@@ -6,6 +6,7 @@ import kairosbot/commands/registry
 import kairosbot/core/trophy_tracker
 import kairosbot/core/attempt_tracker
 import kairosbot/core/economy
+import kairosbot/data/persistence
 import kairosbot/twitch/chat
 import kairosbot/utils/chat_helpers
 
@@ -57,6 +58,29 @@ var
   ## Economy service (exposed by the economy plugin): used by !bet
   trophyTexts*: Table[string, TrophyText]
   ## Translatable one-off trophy texts from trophies.json
+  msgTexts*: Table[string, string]
+  ## Translatable user-facing chat texts from messages.json
+
+# --- Texts --------------------------------------------------------------------
+
+proc loadMsgs(path: string): Table[string, string] =
+  ## Loads messages.json: flat key -> template pairs
+  result = initTable[string, string]()
+  if not fileExists(path):
+    return
+  let node = loadJson(path)
+  if node.kind != JObject:
+    return
+  for key, value in node.pairs:
+    if value.kind == JString:
+      result[key] = value.getStr
+
+proc mtext(key, fallback: string): string =
+  ## A user-facing message template (messages.json) with English fallback
+  if msgTexts.hasKey(key):
+    result = msgTexts[key]
+  else:
+    result = fallback
 
 # --- Slot machine ------------------------------------------------------------------
 
@@ -138,14 +162,18 @@ proc formatSlotResult*(res: SlotResult, betOn: string): string =
   let line = res.symbols.join(" ")
   var text: string
   if res.isWin:
-    text = "🎉 " & line & " 🎉 WIN!"
+    text = mtext("slot_win", "🎉 {line} 🎉 WIN!").replace("{line}", line)
     if betOn.len > 0 and res.symbols.contains(betOn):
-      text &= " You even guessed the " & betOn & "!"
+      text &= mtext("slot_guess", " You even guessed the {symbol}!")
+        .replace("{symbol}", betOn)
   else:
     if betOn.len > 0:
-      text = "Bet on " & betOn & ": " & line & " — nope, try again!"
+      text = mtext("slot_bet_lose", "Bet on {symbol}: {line} — nope, try again!")
+        .replace("{symbol}", betOn)
+        .replace("{line}", line)
     else:
-      text = line & " — nope, try again!"
+      text = mtext("slot_lose", "{line} — nope, try again!")
+        .replace("{line}", line)
   result = text
 
 # --- Palla magica --------------------------------------------------------------------
@@ -249,8 +277,11 @@ proc cmdFlip*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
     let won = (bet == outcome.toLowerAscii())
     trophies.add(router.trophyTracker.recordEvent(
       msg.username, "flip", if won: "win" else: "loss"))
-    let verdict = if won: "You bet " & bet & " — WIN! 🎉"
-                  else: "You bet " & bet & " — lose."
+    let verdict =
+      if won:
+        mtext("flip_win", "You bet {bet} — WIN! 🎉").replace("{bet}", bet)
+      else:
+        mtext("flip_lose", "You bet {bet} — lose.").replace("{bet}", bet)
     text = outcome & "! " & verdict
   else:
     text = outcome & "!"
@@ -269,24 +300,35 @@ proc slotMultiplier*(combo: seq[string]): int =
 proc cmdBet*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !bet <amount> <flip|slots> - bet coins on a game of chance
   if econ.isNil:
-    await safeSend(router.chat, msg.username & ", the economy is not available")
+    await safeSend(router.chat,
+      mtext("economy_unavailable", "{user}, the economy is not available")
+        .replace("{user}", msg.username))
     return
   let parts = msg.args.strip().splitWhitespace()
   if parts.len != 2:
-    await safeSend(router.chat, msg.username & ", usage: !bet <amount> <flip|slots>")
+    await safeSend(router.chat,
+      mtext("bet_usage", "{user}, usage: !bet <amount> <flip|slots>")
+        .replace("{user}", msg.username))
     return
   var amount = 0
   if parseInt(parts[0], amount) == 0 or amount < econ.minBet:
-    await safeSend(router.chat, msg.username & ", enter a valid amount (min " &
-      $econ.minBet & ")")
+    await safeSend(router.chat,
+      mtext("invalid_amount", "{user}, enter a valid amount (min {min})")
+        .replace("{user}", msg.username)
+        .replace("{min}", $econ.minBet))
     return
   let game = parts[1].toLowerAscii()
   if game != "flip" and game != "slots":
-    await safeSend(router.chat, msg.username & ", bet on flip or slots")
+    await safeSend(router.chat,
+      mtext("invalid_game", "{user}, bet on flip or slots")
+        .replace("{user}", msg.username))
     return
   if not econ.canAfford(msg.username, amount):
     let bal = econ.getBalance(msg.username)
-    await safeSend(router.chat, msg.username & ", you only have " & $bal & " 🪙")
+    await safeSend(router.chat,
+      mtext("insufficient_funds", "{user}, you only have {balance} 🪙")
+        .replace("{user}", msg.username)
+        .replace("{balance}", $bal))
     return
 
   var payout = 0
@@ -296,8 +338,13 @@ proc cmdBet*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
     let outcome = if rand(2) == 0: heads else: tails
     let won = rand(2) == 0
     if won: payout = amount * 2
-    let verdict = if won: "You win " & $amount & " 🪙! 🎉"
-                 else: "You lose " & $amount & " 🪙."
+    let verdict =
+      if won:
+        mtext("bet_win", "You win {amount} 🪙! 🎉")
+          .replace("{amount}", $amount)
+      else:
+        mtext("bet_lose", "You lose {amount} 🪙.")
+          .replace("{amount}", $amount)
     gameText = outcome & "! " & verdict
   else:
     let spec = specs.getOrDefault("slots", CommandSpec(name: "slots"))
@@ -305,8 +352,13 @@ proc cmdBet*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
     let result = generateSlotResult(prob)
     if result.isWin:
       payout = amount * slotMultiplier(result.symbols)
-    let verdict = if result.isWin: "You win " & $payout & " 🪙! 🎉"
-                 else: "You lose " & $amount & " 🪙."
+    let verdict =
+      if result.isWin:
+        mtext("bet_win", "You win {amount} 🪙! 🎉")
+          .replace("{amount}", $payout)
+      else:
+        mtext("bet_lose", "You lose {amount} 🪙.")
+          .replace("{amount}", $amount)
     gameText = formatSlotResult(result, "") & " " & verdict
 
   discard econ.applyWager(msg.username, amount, payout)
@@ -335,6 +387,7 @@ proc register*(ctx: PluginContext) =
     return
   specs = loadCommandSpecs(ctx.dir / "commands.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
+  msgTexts = loadMsgs(ctx.dir / "messages.json")
   econ = cast[EconomyService](ctx.platform.services.getOrDefault("economy", nil))
   var handlers: Table[string, CommandHandler]
   handlers["8ball"] = cmd8ball

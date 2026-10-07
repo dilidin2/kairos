@@ -1,0 +1,13 @@
+{
+  // User-facing chat texts for the trophies plugin. Every key maps to a
+  // template; placeholders use the {name} syntax. Missing keys fall back
+  // to the English defaults in main.nim.
+
+  // --- !trophy ---
+  "no_trophies": "{user} has no trophies yet. Play and unlock some!",
+  "header": "Trophies of {user}:",
+  // one line per command group
+  "group_line": "📦 {command}:",
+  // one line per trophy
+  "trophy_line": "  🏆 {name}"
+}

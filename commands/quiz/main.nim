@@ -3,6 +3,7 @@ import std/[strutils, tables, os, math, asyncdispatch, options, json]
 import kairosbot/plugin
 import kairosbot/core/command_router
 import kairosbot/core/trophy_tracker
+import kairosbot/data/persistence
 import kairosbot/commands/registry
 import kairosbot/twitch/chat
 import kairosbot/utils/chat_helpers
@@ -19,6 +20,29 @@ var
   ## State of the active quiz
   specs*: Table[string, CommandSpec]
   ## Metadata read from commands.json in register()
+  msgTexts*: Table[string, string]
+  ## Translatable user-facing chat texts from messages.json
+
+# --- Texts --------------------------------------------------------------------
+
+proc loadMsgs(path: string): Table[string, string] =
+  ## Loads messages.json: flat key -> template pairs
+  result = initTable[string, string]()
+  if not fileExists(path):
+    return
+  let node = loadJson(path)
+  if node.kind != JObject:
+    return
+  for key, value in node.pairs:
+    if value.kind == JString:
+      result[key] = value.getStr
+
+proc mtext(key, fallback: string): string =
+  ## A user-facing message template (messages.json) with English fallback
+  if msgTexts.hasKey(key):
+    result = msgTexts[key]
+  else:
+    result = fallback
 
 proc windowSeconds(): int =
   ## Window length from the `window_seconds` param of !quiz
@@ -36,10 +60,14 @@ proc cmdQuiz*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   if resp.len > 0:
     # attempts the answer
     if not quizState.active:
-      await safeSend(router.chat, msg.username & ", no quiz is in progress")
+      await safeSend(router.chat,
+        mtext("no_quiz", "{user}, no quiz is in progress")
+          .replace("{user}", msg.username))
       return
     if quizState.winner.len > 0:
-      await safeSend(router.chat, msg.username & ", the quiz is already won")
+      await safeSend(router.chat,
+        mtext("already_won", "{user}, the quiz is already won")
+          .replace("{user}", msg.username))
       return
     if quizState.isCorrect(resp):
       quizState.winner = msg.username
@@ -48,10 +76,14 @@ proc cmdQuiz*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
       # early release of the window
       pluginCtx.endWindow(WindowName)
       quizState.active = false
-      await safeSend(router.chat, "🎉 " & msg.username & " won the quiz! The answer was: \"" &
-        quizState.answer & "\"")
+      await safeSend(router.chat,
+        mtext("won", "🎉 {user} won the quiz! The answer was: \"{answer}\"")
+          .replace("{user}", msg.username)
+          .replace("{answer}", quizState.answer))
     else:
-      await safeSend(router.chat, msg.username & ", nope, try again!")
+      await safeSend(router.chat,
+        mtext("wrong_answer", "{user}, nope, try again!")
+          .replace("{user}", msg.username))
     return
 
   # starts a new question
@@ -59,15 +91,22 @@ proc cmdQuiz*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   if active.isSome:
     let (name, secs) = active.get()
     if name == WindowName:
-      await safeSend(router.chat, msg.username & ", quiz in progress, " &
-        $int(round(secs)) & "s left, answer!")
+      await safeSend(router.chat,
+        mtext("in_progress", "{user}, quiz in progress, {secs}s left, answer!")
+          .replace("{user}", msg.username)
+          .replace("{secs}", $int(round(secs))))
     else:
-      await safeSend(router.chat, msg.username &
-        ", another event is running: " & name & " (" & $int(round(secs)) & "s left)")
+      await safeSend(router.chat,
+        mtext("other_event",
+              "{user}, another event is running: {name} ({secs}s left)")
+          .replace("{user}", msg.username)
+          .replace("{name}", name)
+          .replace("{secs}", $int(round(secs))))
     return
   let q = pickQuestion()
   if q.question.len == 0:
-    await safeSend(router.chat, "No questions available right now.")
+    await safeSend(router.chat, mtext("no_questions",
+      "No questions available right now."))
     return
   quizState.active = true
   quizState.category = q.category
@@ -80,15 +119,21 @@ proc cmdQuiz*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   proc onExpire() {.async.} =
     # no winner: reveals the answer
     if quizState.active:
-      await safeSend(router.chat, "⏰ Time's up! The answer was: \"" &
-        quizState.answer & "\"")
+      await safeSend(router.chat,
+        mtext("time_up", "⏰ Time's up! The answer was: \"{answer}\"")
+          .replace("{answer}", quizState.answer))
       quizState.active = false
   if not pluginCtx.beginWindow(WindowName, secs, onExpire):
     quizState.active = false
     return
-  await safeSend(router.chat, "🧠 " & msg.username & " started a quiz! [" &
-    quizState.category & "] " & quizState.question &
-    " Answer with !quiz <answer> (" & $secs & "s)")
+  await safeSend(router.chat,
+    mtext("started",
+          "🧠 {user} started a quiz! [{category}] {question} " &
+          "Answer with !quiz <answer> ({secs}s)")
+        .replace("{user}", msg.username)
+        .replace("{category}", quizState.category)
+        .replace("{question}", quizState.question)
+        .replace("{secs}", $secs))
 
 # --- Registration ------------------------------------------------------------------------
 
@@ -98,6 +143,7 @@ proc register*(ctx: PluginContext) =
     return
   pluginCtx = ctx
   loadQuestions(ctx.dir / "questions.json")
+  msgTexts = loadMsgs(ctx.dir / "messages.json")
   var handlers: Table[string, CommandHandler]
   handlers["quiz"] = cmdQuiz
   specs = loadCommandSpecs(ctx.dir / "commands.json")
