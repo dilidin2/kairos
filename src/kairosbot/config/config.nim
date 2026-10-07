@@ -1,4 +1,4 @@
-import std/[json, tables]
+import std/[json, tables, os]
 import ../data/persistence
 
 const TwitchClientId* = "tjnzi3fcugetb3ma04raaqqwu2st8o"
@@ -34,6 +34,8 @@ type
     llmServer*: LlmServerConfig
     questSystem*: QuestSystemConfig
     peerBus*: PeerBusConfig
+    messages*: Table[string, string]
+    ## Translatable user-facing chat texts from messages.json
 
 proc parseLlmServerConfig*(node: JsonNode): LlmServerConfig =
   ## Parses an LlmServerConfig from a JSON node.
@@ -102,6 +104,21 @@ proc parsePeerBusConfig*(node: JsonNode): PeerBusConfig =
       result.peers[k] = v.getStr
 
 
+proc loadMessages(dir: string): Table[string, string] =
+  ## Loads messages.json (flat key -> template pairs) from the config
+  ## directory; empty table if missing or malformed (the callers fall
+  ## back to the English defaults)
+  result = initTable[string, string]()
+  let path = dir / "messages.json"
+  if not fileExists(path):
+    return
+  let node = loadJson(path)
+  if node.kind != JObject:
+    return
+  for key, value in node.pairs:
+    if value.kind == JString:
+      result[key] = value.getStr
+
 proc loadConfig*(path: string = "config/bot_config.json"): BotConfig =
   ## Loads and validates the configuration from bot_config.json
   ## (only the truly global: each plugin carries its own commands)
@@ -130,4 +147,5 @@ proc loadConfig*(path: string = "config/bot_config.json"): BotConfig =
     botLanguage: botLanguage,
     llmServer: llmConfig,
     questSystem: questConfig,
-    peerBus: parsePeerBusConfig(json["peerbus"]))
+    peerBus: parsePeerBusConfig(json["peerbus"]),
+    messages: loadMessages(path.parentDir))

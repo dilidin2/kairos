@@ -49,6 +49,14 @@ proc registerHandler*(router: CommandRouter, name: string, handler: CommandHandl
   ## Registers the handler proc for a command
   router.handlers[name] = handler
 
+proc mtext*(router: CommandRouter, key, fallback: string): string =
+  ## A user-facing message template (config/messages.json) with an
+  ## English fallback
+  if router.config.messages.hasKey(key):
+    result = router.config.messages[key]
+  else:
+    result = fallback
+
 proc parseCommand*(router: CommandRouter, content: string): Option[(string, string)] =
   ## Parses command name and arguments from the message content
 
@@ -70,19 +78,30 @@ proc parseCommand*(router: CommandRouter, content: string): Option[(string, stri
 
 proc sendCooldownMessage*(router: CommandRouter, msg: ChatMessage, command: string, remaining: float) {.async.} =
   ## Sends a cooldown message to chat
-  let text = msg.username & ", " & router.prefix & command & " is on cooldown, retry in " & $remaining.int & " seconds"
+  let text = router.mtext("cooldown",
+                          "{user}, {prefix}{command} is on cooldown, retry in {secs} seconds")
+    .replace("{user}", msg.username)
+    .replace("{prefix}", router.prefix)
+    .replace("{command}", command)
+    .replace("{secs}", $remaining.int)
 
   await safeSend(router.chat, text)
 
 proc sendNoAttemptsMessage*(router: CommandRouter, msg: ChatMessage, command: string) {.async.} =
   ## Sends a "no attempts left" message to chat
-  let text = msg.username & ", you have no attempts left for: " & router.prefix & command
+  let text = router.mtext("no_attempts",
+                          "{user}, you have no attempts left for: {prefix}{command}")
+    .replace("{user}", msg.username)
+    .replace("{prefix}", router.prefix)
+    .replace("{command}", command)
 
   await safeSend(router.chat, text)
 
 proc sendErrorMessage*(router: CommandRouter, msg: ChatMessage) {.async.} =
   ## Sends a generic error message to chat
-  let text = msg.username & ", this is a generic error message, we have no clue why this did not work -.-"
+  let text = router.mtext("error",
+                          "{user}, this is a generic error message, we have no clue why this did not work -.-")
+    .replace("{user}", msg.username)
 
   await safeSend(router.chat, text)
 
@@ -158,14 +177,21 @@ proc process*(router: CommandRouter, msg: ChatMessage) {.async.} =
             msg.badges.contains("broadcaster")):
       debug "Denied (mod role required): !", canonical, " by ", msg.username
       await safeSend(router.chat,
-        msg.username & ", you need a moderator role to use " &
-        router.prefix & canonical)
+        router.mtext("mod_required",
+                     "{user}, you need a moderator role to use {prefix}{command}")
+        .replace("{user}", msg.username)
+        .replace("{prefix}", router.prefix)
+        .replace("{command}", canonical))
       return
   of crBroadcaster:
     if not msg.badges.contains("broadcaster"):
       debug "Denied (broadcaster role required): !", canonical, " by ", msg.username
       await safeSend(router.chat,
-        msg.username & ", only the broadcaster can use " & router.prefix & canonical)
+        router.mtext("broadcaster_required",
+                     "{user}, only the broadcaster can use {prefix}{command}")
+        .replace("{user}", msg.username)
+        .replace("{prefix}", router.prefix)
+        .replace("{command}", canonical))
       return
 
   if router.cooldownTracker.isOnCooldown(msg.username, canonical):
