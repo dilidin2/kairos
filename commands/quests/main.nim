@@ -299,7 +299,7 @@ proc finishQuestComplete(ctx: PluginContext, state: QuestState,
   await ctx.send(announcement)
   var byUser: Table[string, seq[Trophy]]
   for (user, t) in newTrophies:
-    byUser[user].add(t)
+    byUser.mgetOrPut(user, @[]).add(t)
   for user, ts in byUser.pairs:
     await sendTrophyUnlocks(ctx.platform.router.chat, trophyTexts, user, ts)
   ctx.clearBusy()
