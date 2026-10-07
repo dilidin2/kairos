@@ -2,7 +2,8 @@
   // --- Market parameters ---
 
   // How often (in seconds) the market does a tick: one random-walk step
-  // for every stock, plus a chance of a rare shock (main.nim: doTick).
+  // for every stock, plus a chance of a rare surge and a chance of a
+  // pre-crash rumour (main.nim: doTick).
   "tickSeconds": 60,
 
   // PnL threshold for the "PnL King" trophy: first user whose
@@ -16,7 +17,7 @@
   "millionaire": 1000.0,
 
   // Chance (in percent, 0-100) per tick and per stock that a rare
-  // event (shock) hits it, on top of the normal random walk.
+  // positive shock (surge) hits it, on top of the normal random walk.
   "shockChance": 5,
 
   // Minimum amplitude of a rare shock, in percent (e.g. 20 = ±20%).
@@ -25,49 +26,83 @@
   // Maximum amplitude of a rare shock, in percent.
   "shockMax": 40,
 
+  // Chance (in percent, 0-100) per tick and per stock that a pre-crash
+  // rumour is announced (news.json): the crash itself lands on the NEXT
+  // tick with an amplitude in [shockMin, shockMax], so chat has one tick
+  // to react. Keep it EQUAL to shockChance: with equal chances and the
+  // same amplitude the expected price drift is zero (surges and crashes
+  // balance out).
+  "crashChance": 5,
+
   // A shock with |amplitude| >= this (as a fraction, 0.2 = 20%)
-  // is considered a crash/surge event: it is announced in chat with
-  // 📈/📉 and, if negative, "Crash Survivor" trophies are awarded
-  // to whoever held that stock.
+  // is announced in chat with 📈/📉 and, if negative, "Crash Survivor"
+  // trophies are awarded to whoever held that stock.
   "crashThreshold": 0.2,
+
+  // Hard upper bound for a stock price (safety net against runaway
+  // growth; with balanced drift it is practically unreachable).
+  "maxPrice": 100000.0,
+
+  // Broker fee on every buy/sell, in percent (2.0 = 2%). The fees are
+  // collected in a real pool (persisted) that is the ONLY source of
+  // money for the loans: the economy stays closed.
+  "brokerFee": 2.0,
+
+  // Interest on loans per tick, in percent (1.0 = 1% per tick).
+  "loanInterest": 1.0,
+
+  // Max loan as a percent of the user's wealth (balance + portfolio
+  // value) (50 = 50%). A broke user gets a smaller or zero cap.
+  "maxLoanPct": 50,
+
+  // Default total shares per stock when "supply" is not set on it.
+  "defaultSupply": 1000,
 
   // --- Stock list ---
   // New stocks start from the "price" here; already persisted stocks
-  // keep their current price and only "volatility" is reloaded.
+  // keep their current price and only "volatility" and "supply" are
+  // reloaded. "supply" is the total shares in existence: if everyone
+  // is bought out, no one can buy again until someone sells.
   "stocks": [
     {
       "name": "Pasta",
       "price": 10.0,
       // Amplitude of the normal random walk per tick, as a fraction
       // (0.08 = ±8% per tick). Higher = more volatile/risky stock.
-      "volatility": 0.08
+      "volatility": 0.08,
+      "supply": 500
     },
     {
       "name": "GPU",
       "price": 150.0,
-      "volatility": 0.15
+      "volatility": 0.15,
+      "supply": 100
     },
     {
       "name": "Sardine",
       "price": 5.0,
-      "volatility": 0.1
+      "volatility": 0.1,
+      "supply": 800
     },
     {
       "name": "MoonRock",
       "price": 80.0,
-      "volatility": 0.2
+      "volatility": 0.2,
+      "supply": 150
     },
     {
       "name": "Memecoin",
       "price": 2.0,
       // Most volatile stock: ±35% swings per tick, cheap and risky.
-      "volatility": 0.35
+      "volatility": 0.35,
+      "supply": 2000
     },
     {
       "name": "Tardis",
       "price": 300.0,
       // Most expensive stock, moderate volatility.
-      "volatility": 0.12
+      "volatility": 0.12,
+      "supply": 50
     }
   ]
 }

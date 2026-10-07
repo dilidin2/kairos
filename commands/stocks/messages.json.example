@@ -1,0 +1,51 @@
+{
+  // User-facing chat texts for the stocks plugin. Every key maps to a
+  // template; placeholders use the {name} syntax. Missing keys fall back
+  // to the English defaults in main.nim.
+
+  // --- !stock ---
+  "no_stocks": "No stocks available.",
+  "market_header": "📊 Stock market:",
+  // suffix appended to every stock line in !stock
+  "left_suffix": " ({left} left)",
+
+  // --- !buy / !sell / !buyall / !sellall ---
+  "buy_usage": "{user}, usage: !buy <item> <quantity>",
+  "sell_usage": "{user}, usage: !sell <item> <quantity>",
+  "buyall_usage": "{user}, usage: !buyall <item>",
+  "sellall_usage": "{user}, usage: !sellall <item>",
+  "invalid_quantity": "{user}, enter a valid quantity",
+  "invalid_amount": "{user}, enter a valid amount",
+  "unknown_stock": "{user}, unknown stock: {item}",
+  "economy_unavailable": "{user}, the economy is not available",
+  "insufficient_funds": "{user}, you only have {balance} 🪙",
+  "only_left": "{user}, only {left} {item} left to buy",
+  "no_left": "{user}, no {item} left to buy",
+  "cannot_afford": "{user}, you can't afford {item} (balance {balance} 🪙)",
+  "bought": "{user} bought {qty} {item} for {total} 🪙 ({cash} + {fee} fee)",
+  "not_owner": "{user}, you don't own {item}",
+  "sold": "{user} sold {qty} {item} for {net} 🪙 ({proceeds} - {fee} fee)",
+
+  // --- !portfolio ---
+  "no_portfolio": "{user}, you don't own any stocks",
+  "portfolio_header": "💼 {user}'s portfolio:",
+  "holding_line": "{qty} {item} ({value} 🪙)",
+  "portfolio_total": "Total: {value} 🪙 (PnL {pnl})",
+  "debt_line": "Debt: {debt} 🪙",
+  // holding line for a stock removed from the market (worth 0)
+  "delisted_line": "{qty} {item} (delisted)",
+
+  // --- !loan / !repay ---
+  "loan_status": "{user}, you owe {debt} 🪙. You can borrow up to {available} 🪙",
+  "loan_max": "{user}, you can borrow up to {available} 🪙",
+  "broker_empty": "{user}, the broker has no money (fees fund the loans)",
+  "broker_cannot_cover": "{user}, the broker can't cover that",
+  "borrowed": "{user} borrowed {amount} 🪙 from the broker (interest {interest}% per tick)",
+  "no_debt": "{user}, you have no debt",
+  "cannot_repay": "{user}, you can't repay: no balance",
+  "repaid": "{user} repaid {amount} 🪙 to the broker (left: {debt} 🪙)",
+
+  // --- market events (doTick) ---
+  "crash": "📉 CRASH: {item} -{pct}%",
+  "surge": "📈 SURGE: {item} +{pct}%"
+}
