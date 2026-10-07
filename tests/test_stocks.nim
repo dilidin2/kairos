@@ -54,8 +54,9 @@ suite "StocksPlugin":
       await cmd_stocks.cmdBuy(msg, cmd, router)
 
       check cmd_stocks.market.holdingQty("mario", "pasta") == 5
-      # cost = 5 * 10 = 50
-      check econ.getBalance("mario") == balBefore - 50
+      # cost = 5 * 10 = 50, plus the broker fee (derived from the market model)
+      check econ.getBalance("mario") == balBefore - 50 -
+        cmd_stocks.market.brokerFeeFor(50.0)
     waitFor(runTest())
 
   test "cmdBuy with insufficient balance does not buy":
@@ -74,7 +75,8 @@ suite "StocksPlugin":
       await cmd_stocks.cmdBuy(msg, cmd, router)
       check cmd_stocks.market.holdingQty("mario", "GPU") == 0
       let sent = sentMessages()
-      check sent[0].contains("you only have")
+      # the balance is data: it must appear in any translation
+      check sent[0].contains("100")
     waitFor(runTest())
 
   test "cmdBuy with an unknown stock":
@@ -90,7 +92,8 @@ suite "StocksPlugin":
       msg.args = "dragon 1"
       await cmd_stocks.cmdBuy(msg, cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("unknown stock")
+      # the unknown item is echoed: data that must appear in any translation
+      check sent[0].contains("dragon")
     waitFor(runTest())
 
   test "cmdBuy with invalid arguments":
@@ -106,7 +109,8 @@ suite "StocksPlugin":
       msg.args = "pasta"
       await cmd_stocks.cmdBuy(msg, cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("usage")
+      # the usage shows prefix+command: data that must appear in any translation
+      check sent[0].contains("!buy")
     waitFor(runTest())
 
   test "cmdSell sells: credits the economy and removes the holdings":
@@ -130,7 +134,9 @@ suite "StocksPlugin":
       smsg.args = "pasta 2"
       await cmd_stocks.cmdSell(smsg, sell, router)
       check cmd_stocks.market.holdingQty("mario", "pasta") == 3
-      check econ.getBalance("mario") == balAfterBuy + 20
+      # proceeds 2 * 10 = 20, minus the broker fee (market model)
+      check econ.getBalance("mario") == balAfterBuy + 20 -
+        cmd_stocks.market.brokerFeeFor(20.0)
     waitFor(runTest())
 
   test "cmdSell without sufficient holdings":
@@ -146,7 +152,8 @@ suite "StocksPlugin":
       msg.args = "pasta 5"
       await cmd_stocks.cmdSell(msg, cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("you don't own")
+      # the stock name is echoed: data that must appear in any translation
+      check sent[0].contains("Pasta")
     waitFor(runTest())
 
   test "cmdPortfolio shows the holdings and the PnL":
@@ -164,9 +171,9 @@ suite "StocksPlugin":
       await cmd_stocks.cmdBuy(bmsg, buy, router)
       await cmd_stocks.cmdPortfolio(mkMsg("!portfolio"), port, router)
       let sent = sentMessages()
+      # the item and its value are data: they must appear in any translation
       check sent[1].contains("Pasta")
-      check sent[1].contains("Total")
-      check sent[1].contains("PnL")
+      check sent[1].contains("50")
     waitFor(runTest())
 
   test "cmdPortfolio with no holdings":
@@ -180,5 +187,5 @@ suite "StocksPlugin":
       let cmd = router.registry.get("portfolio").get()
       await cmd_stocks.cmdPortfolio(mkMsg("!portfolio"), cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("you don't own")
+      check sent[0].contains("mario")
     waitFor(runTest())

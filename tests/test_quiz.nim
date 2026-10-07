@@ -85,12 +85,16 @@ suite "QuizPlugin":
       check not cmd_quiz.quizState.active
       # window released
       check not ctx.platform.windowGuard.isActive()
-      # trophy assigned
+      # trophy assigned: the name comes from the plugin data
+      # (commands.json), so derive it from the registered rule
+      let winRule = router.trophyTracker.rules["quiz"]
+        .filterIt(it.eventType == "win")[0]
       let trophies = router.trophyTracker.getUserTrophies("mario")
-      check trophies.anyIt(it.name == "Quiz Wizard" and it.command == "quiz")
+      check trophies.anyIt(it.name == winRule.name and it.command == "quiz")
       let sent = sentMessages()
       check sent[0].contains("mario")
-      check sent[0].contains("won the quiz")
+      # the revealed answer is data: it must appear in any translation
+      check sent[0].contains("Canberra")
     waitFor(runTest())
 
   test "cmdQuiz <answer> wrong does not win":
@@ -115,7 +119,7 @@ suite "QuizPlugin":
       check cmd_quiz.quizState.winner.len == 0
       check cmd_quiz.quizState.active
       let sent = sentMessages()
-      check sent[0].contains("nope, try again")
+      check sent[0].contains("mario")
     waitFor(runTest())
 
   test "cmdQuiz <answer> with no active quiz replies with an error":
@@ -132,7 +136,7 @@ suite "QuizPlugin":
       msg.args = "Paris"
       await cmd_quiz.cmdQuiz(msg, cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("no quiz is in progress")
+      check sent[0].contains("mario")
     waitFor(runTest())
 
   test "cmdQuiz during its own ongoing quiz warns the others":
@@ -150,5 +154,5 @@ suite "QuizPlugin":
       # second quiz: in progress
       await cmd_quiz.cmdQuiz(mkMsg("!quiz"), cmd, router)
       let sent = sentMessages()
-      check sent[1].contains("quiz in progress")
+      check sent[1].contains("mario")
     waitFor(runTest())

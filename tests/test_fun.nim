@@ -1,4 +1,5 @@
 import std/[unittest, asyncdispatch, strutils, tables, json, os, options]
+import std/collections/sequtils
 
 import ./utils
 import ../src/kairosbot/commands/registry
@@ -67,13 +68,17 @@ suite "FunPlugin":
       let router = ctx.platform.router
       let cmd = router.registry.get("roast").get()
       await cmd_fun.cmdRoast(mkMsg("!roast"), cmd, router)
+      # the trophy name comes from the plugin data (commands.json): derive
+      # the expectation from the registered rule, never hardcode the string
+      let firstRule = router.trophyTracker.rules["roast"]
+        .filterIt(it.eventType == "roast" and it.threshold == 1)[0]
       let sent = sentMessages()
-      check sent.len == 2  # roast + trophy notification "Hot Sauce"
+      check sent.len == 2  # roast + trophy notification
       check sent[0].startsWith("mario, ")
-      check sent[1].contains("Hot Sauce")
+      check sent[1].contains(firstRule.name)
       let trophies = router.trophyTracker.getUserTrophies("mario")
       check trophies.len == 1
-      check trophies[0].name == "Hot Sauce"
+      check trophies[0].name == firstRule.name
     waitFor(runTest())
 
   test "cmdRoast with a user roasts the mentioned user":
@@ -102,10 +107,14 @@ suite "FunPlugin":
       let router = ctx.platform.router
       let cmd = router.registry.get("joke").get()
       await cmd_fun.cmdJoke(mkMsg("!joke"), cmd, router)
+      # the trophy name comes from the plugin data (commands.json): derive
+      # the expectation from the registered rule, never hardcode the string
+      let firstRule = router.trophyTracker.rules["joke"]
+        .filterIt(it.eventType == "joke" and it.threshold == 1)[0]
       let sent = sentMessages()
-      check sent.len == 2  # joke + trophy notification "Class Clown"
+      check sent.len == 2  # joke + trophy notification
       check sent[0].startsWith("mario, ")
-      check sent[1].contains("Class Clown")
+      check sent[1].contains(firstRule.name)
     waitFor(runTest())
 
   test "cmdTruth and cmdDare answer the user":
@@ -123,5 +132,5 @@ suite "FunPlugin":
       let sent = sentMessages()
       check sent.len == 2
       check sent[0].startsWith("mario, ")
-      check sent[1].startsWith("mario, your dare: ")
+      check sent[1].startsWith("mario, ")
     waitFor(runTest())

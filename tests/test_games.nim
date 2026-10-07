@@ -140,9 +140,11 @@ suite "GamesPlugin":
       cmd_games.register(ctx)
       let router = ctx.platform.router
       let cmd = router.registry.get("flip").get()
+      # the outcomes come from the plugin data (commands.json): derive them
+      let (heads, tails) = cmd_games.getFlipOutcomes()
       await cmd_games.cmdFlip(mkMsg("!flip"), cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("Heads!") or sent[0].contains("Tails!")
+      check sent[0].contains(heads & "!") or sent[0].contains(tails & "!")
       check router.trophyTracker.counters[
         makeCounterKey("mario", "flip", "flip")] == 1
     waitFor(runTest())
@@ -156,12 +158,15 @@ suite "GamesPlugin":
       cmd_games.register(ctx)
       let router = ctx.platform.router
       let cmd = router.registry.get("flip").get()
-      var msg = mkMsg("!flip heads")
-      msg.args = "heads"
+      # bet on a REAL outcome from the plugin data (commands.json)
+      let (heads, tails) = cmd_games.getFlipOutcomes()
+      var msg = mkMsg("!flip " & heads)
+      msg.args = heads
       await cmd_games.cmdFlip(msg, cmd, router)
       let sent = sentMessages()
-      check sent[0].contains("heads")
-      check sent[0].contains("WIN") or sent[0].contains("lose")
+      # the bet is echoed (data) and the outcome is announced
+      check sent[0].contains(heads.toLowerAscii())
+      check sent[0].contains(heads & "!") or sent[0].contains(tails & "!")
       # the flip always counts, plus win or loss
       check router.trophyTracker.counters[
         makeCounterKey("mario", "flip", "flip")] == 1

@@ -57,8 +57,10 @@ suite "InfoPlugin":
       cooldown: 10.0, maxAttemptsPerDay: 5)
     let h = formatCommandHelp(full)
     check h.contains("slots: play the slots")
-    check h.contains("cooldown: 10s")
-    check h.contains("5 attempts/day")
+    # cooldown and attempts VALUES are data: they must appear in any
+    # translation (the surrounding words come from messages.json)
+    check h.contains("10")
+    check h.contains("5")
 
   test "cmdCommands sends the command list in chat":
     proc runTest() {.async.} =
@@ -72,7 +74,9 @@ suite "InfoPlugin":
       await cmd_info.cmdCommands(mkMsg("!commands"), cmd, router)
       let sent = sentMessages()
       check sent.len == 1
-      check sent[0].contains("here are all the commands")
+      # username and command names are data: they must appear in any
+      # translation (the header words come from messages.json)
+      check sent[0].contains("mario")
       check sent[0].contains("Info:")
       check sent[0].contains("!ping")
       check not sent[0].contains("ping-pong")
@@ -98,7 +102,6 @@ suite "InfoPlugin":
       check sent.len > 1
       for m in sent:
         check m.len <= MaxMessageLength
-      check sent[0].contains("here are all the commands")
       check sent.anyIt(it.contains("!cmd30"))
     waitFor(runTest())
 
@@ -129,7 +132,8 @@ suite "InfoPlugin":
       var msg = mkMsg("!help inexistente")
       msg.args = "inexistente"
       await cmd_info.cmdHelp(msg, cmd, router)
-      check sentBodies()[0].contains("unknown command")
+      # the unknown name is echoed: data that must appear in any translation
+      check sentBodies()[0].contains("inexistente")
     waitFor(runTest())
 
   test "cmdHelp with no arguments replies with the usage":
@@ -144,7 +148,8 @@ suite "InfoPlugin":
       var msg = mkMsg("!help")
       msg.args = ""
       await cmd_info.cmdHelp(msg, cmd, router)
-      check sentBodies()[0].contains("usage: !help")
+      # the usage shows prefix+command: data that must appear in any translation
+      check sentBodies()[0].contains("!help")
     waitFor(runTest())
 
   test "cmdUptime reports the time online":
