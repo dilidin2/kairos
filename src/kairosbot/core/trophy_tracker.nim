@@ -1,4 +1,4 @@
-import std/[tables, times, strutils, asyncdispatch, options, json, sequtils]
+import std/[tables, times, strutils, asyncdispatch, json, sequtils]
 
 import ../data/persistence
 
@@ -25,8 +25,7 @@ type
     streaks*: Table[string, int]
     trophies*: Table[string, seq[Trophy]]
     dataPath*: string
-    saveGeneration*: int
-    saveFuture*: Option[Future[void]]
+    saver: DebouncedSaver
 
   TrophyData* = object
     counters*: Table[string, int]
@@ -74,24 +73,9 @@ proc saveTrophies*(tracker: TrophyTracker) =
 
   saveTyped(tracker.dataPath, data)
 
-proc performDebounceSave*(tracker: TrophyTracker, myGen: int) {.async.} =
-  ## Performs the debounced save after 5s if this is still the current generation
-  await sleepAsync(5000)
-
-  if myGen != tracker.saveGeneration:
-    return
-  else:
-    saveTrophies(tracker)
-    tracker.saveFuture = none(Future[void])
-
 proc scheduleSave*(tracker: TrophyTracker) =
   ## Schedules a debounced save (5s)
-  tracker.saveGeneration += 1
-  let locGen = tracker.saveGeneration
-
-  let deb = performDebounceSave(tracker, locGen)
-
-  tracker.saveFuture = some(deb)
+  tracker.saver.schedule()
 
 proc newTrophyTracker*(dataPath: string = "data/trophies.json"): TrophyTracker =
   ## Creates a new TrophyTracker and loads the persistent data
@@ -101,15 +85,15 @@ proc newTrophyTracker*(dataPath: string = "data/trophies.json"): TrophyTracker =
   
   let loadedData = loadTyped[TrophyData](dataPath, default)
 
-  result = TrophyTracker(
+  var tracker = TrophyTracker(
     rules: rules,
     counters: loadedData.counters,
     streaks: loadedData.streaks,
     trophies: loadedData.trophies,
-    dataPath: dataPath,
-    saveGeneration: 0,
-    saveFuture: none(Future[void])
+    dataPath: dataPath
   )
+  tracker.saver = newDebouncedSaver(proc () {.closure.} = saveTrophies(tracker))
+  result = tracker
   
 proc addRules*(tracker: TrophyTracker, command: string, rules: seq[TrophyRule]) =
   ## Registers trophy rules for a command
@@ -184,9 +168,4 @@ proc getTrophiesByCommand*(tracker: TrophyTracker, user: string, command: string
 
 proc forceSave*(tracker: TrophyTracker) {.async.} =
   ## Saves immediately, ignoring the debounce
-  tracker.saveGeneration += 1
-
-  if tracker.saveFuture.isSome:
-    await tracker.saveFuture.get()
-    tracker.saveFuture = options.none(Future[void])
-  saveTrophies(tracker)
+  tracker.saver.flush()

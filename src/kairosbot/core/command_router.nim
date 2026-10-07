@@ -57,6 +57,14 @@ proc mtext*(router: CommandRouter, key, fallback: string): string =
   else:
     result = fallback
 
+proc renderText(router: CommandRouter, key, fallback: string,
+                replacements: openArray[tuple[ph, val: string]]): string =
+  ## mtext with the given {placeholder}s substituted
+  var text = router.mtext(key, fallback)
+  for r in replacements:
+    text = text.replace(r.ph, r.val)
+  result = text
+
 proc parseCommand*(router: CommandRouter, content: string): Option[(string, string)] =
   ## Parses command name and arguments from the message content
 
@@ -78,30 +86,30 @@ proc parseCommand*(router: CommandRouter, content: string): Option[(string, stri
 
 proc sendCooldownMessage*(router: CommandRouter, msg: ChatMessage, command: string, remaining: float) {.async.} =
   ## Sends a cooldown message to chat
-  let text = router.mtext("cooldown",
-                          "{user}, {prefix}{command} is on cooldown, retry in {secs} seconds")
-    .replace("{user}", msg.username)
-    .replace("{prefix}", router.prefix)
-    .replace("{command}", command)
-    .replace("{secs}", $remaining.int)
+  let text = renderText(router, "cooldown",
+                        "{user}, {prefix}{command} is on cooldown, retry in {secs} seconds",
+                        [("{user}", msg.username),
+                         ("{prefix}", router.prefix),
+                         ("{command}", command),
+                         ("{secs}", $remaining.int)])
 
   await safeSend(router.chat, text)
 
 proc sendNoAttemptsMessage*(router: CommandRouter, msg: ChatMessage, command: string) {.async.} =
   ## Sends a "no attempts left" message to chat
-  let text = router.mtext("no_attempts",
-                          "{user}, you have no attempts left for: {prefix}{command}")
-    .replace("{user}", msg.username)
-    .replace("{prefix}", router.prefix)
-    .replace("{command}", command)
+  let text = renderText(router, "no_attempts",
+                        "{user}, you have no attempts left for: {prefix}{command}",
+                        [("{user}", msg.username),
+                         ("{prefix}", router.prefix),
+                         ("{command}", command)])
 
   await safeSend(router.chat, text)
 
 proc sendErrorMessage*(router: CommandRouter, msg: ChatMessage) {.async.} =
   ## Sends a generic error message to chat
-  let text = router.mtext("error",
-                          "{user}, this is a generic error message, we have no clue why this did not work -.-")
-    .replace("{user}", msg.username)
+  let text = renderText(router, "error",
+                        "{user}, this is a generic error message, we have no clue why this did not work -.-",
+                        [("{user}", msg.username)])
 
   await safeSend(router.chat, text)
 
@@ -177,21 +185,21 @@ proc process*(router: CommandRouter, msg: ChatMessage) {.async.} =
             msg.badges.contains("broadcaster")):
       debug "Denied (mod role required): !", canonical, " by ", msg.username
       await safeSend(router.chat,
-        router.mtext("mod_required",
-                     "{user}, you need a moderator role to use {prefix}{command}")
-        .replace("{user}", msg.username)
-        .replace("{prefix}", router.prefix)
-        .replace("{command}", canonical))
+        renderText(router, "mod_required",
+                   "{user}, you need a moderator role to use {prefix}{command}",
+                   [("{user}", msg.username),
+                    ("{prefix}", router.prefix),
+                    ("{command}", canonical)]))
       return
   of crBroadcaster:
     if not msg.badges.contains("broadcaster"):
       debug "Denied (broadcaster role required): !", canonical, " by ", msg.username
       await safeSend(router.chat,
-        router.mtext("broadcaster_required",
-                     "{user}, only the broadcaster can use {prefix}{command}")
-        .replace("{user}", msg.username)
-        .replace("{prefix}", router.prefix)
-        .replace("{command}", canonical))
+        renderText(router, "broadcaster_required",
+                   "{user}, only the broadcaster can use {prefix}{command}",
+                   [("{user}", msg.username),
+                    ("{prefix}", router.prefix),
+                    ("{command}", canonical)]))
       return
 
   if router.cooldownTracker.isOnCooldown(msg.username, canonical):

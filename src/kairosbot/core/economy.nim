@@ -1,4 +1,4 @@
-import std/[tables, asyncdispatch, options, json, os, strutils, algorithm]
+import std/[tables, asyncdispatch, json, os, strutils, algorithm]
 
 import ../data/persistence
 import ../plugin
@@ -31,8 +31,7 @@ type
     firstTo*: int
     ## balance threshold for the "first to reach" trophy
     dataPath*: string
-    saveGeneration*: int
-    saveFuture*: Option[Future[void]]
+    saver: DebouncedSaver
 
   EconomyData* = object
     balances*: Table[string, int]
@@ -48,21 +47,9 @@ proc saveEconomy*(svc: EconomyService) =
   )
   saveTyped(svc.dataPath, data)
 
-proc performDebounceSave*(svc: EconomyService, myGen: int) {.async.} =
-  ## Debounced save (5s): saves only if this is still the current generation
-  await sleepAsync(5000)
-  if myGen != svc.saveGeneration:
-    return
-  else:
-    saveEconomy(svc)
-    svc.saveFuture = none(Future[void])
-
 proc scheduleSave*(svc: EconomyService) =
   ## Schedules a debounced save (5s)
-  svc.saveGeneration += 1
-  let locGen = svc.saveGeneration
-  let deb = performDebounceSave(svc, locGen)
-  svc.saveFuture = some(deb)
+  svc.saver.schedule()
 
 proc newEconomyService*(dataPath: string, startBalance: int = 100,
                         minBet: int = 1, bigWinner: int = DefaultBigWinner,
@@ -74,7 +61,7 @@ proc newEconomyService*(dataPath: string, startBalance: int = 100,
     firstToThousand: ""
   )
   let loaded = loadTyped[EconomyData](dataPath, default)
-  result = EconomyService(
+  var svc = EconomyService(
     balances: loaded.balances,
     maxWins: loaded.maxWins,
     firstToThousand: loaded.firstToThousand,
@@ -82,10 +69,10 @@ proc newEconomyService*(dataPath: string, startBalance: int = 100,
     minBet: minBet,
     bigWinner: bigWinner,
     firstTo: firstTo,
-    dataPath: dataPath,
-    saveGeneration: 0,
-    saveFuture: none(Future[void])
+    dataPath: dataPath
   )
+  svc.saver = newDebouncedSaver(proc () {.closure.} = saveEconomy(svc))
+  result = svc
 
 proc norm(user: string): string =
   ## Twitch usernames are case-insensitive: normalize to lowercase
@@ -171,8 +158,4 @@ proc topBalances*(svc: EconomyService, n: int): seq[(string, int)] =
 
 proc forceSave*(svc: EconomyService) {.async.} =
   ## Saves immediately, ignoring the pending debounce (called at shutdown)
-  svc.saveGeneration += 1
-  if svc.saveFuture.isSome:
-    await svc.saveFuture.get()
-    svc.saveFuture = none(Future[void])
-  saveEconomy(svc)
+  svc.saver.flush()

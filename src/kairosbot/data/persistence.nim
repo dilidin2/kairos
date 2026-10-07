@@ -1,4 +1,4 @@
-import std/[json, os, logging]
+import std/[json, os, logging, asyncdispatch]
 
 proc ensureDir*(path: string) =
   ## Ensures that the directory of the path exists
@@ -47,3 +47,31 @@ proc loadTyped*[T](path: string, default: T): T =
 proc saveTyped*[T](path: string, data: T) =
   ## Serializes the type T into a JsonNode and saves it atomically to disk
   atomicWriteJson(path, %data)
+
+type
+  DebouncedSaver* = ref object
+    ## Debounced persistence: `schedule` postpones `save` by `delayMs` (a new
+    ## schedule discards the pending save), `flush` invalidates the pending
+    ## save and saves immediately (never waits for the delay).
+    saveProc: proc () {.closure.}
+    delayMs: int
+    generation: int
+
+proc newDebouncedSaver*(save: proc () {.closure.}, delayMs: int = 5000): DebouncedSaver =
+  ## Creates a saver that runs `save` with a debounce of `delayMs`
+  result = DebouncedSaver(saveProc: save, delayMs: delayMs)
+
+proc runDebounced(s: DebouncedSaver, gen: int) {.async.} =
+  await sleepAsync(s.delayMs)
+  if gen == s.generation:
+    s.saveProc()
+
+proc schedule*(s: DebouncedSaver) =
+  ## Schedules a debounced save (discards the previous pending save)
+  inc s.generation
+  asyncCheck s.runDebounced(s.generation)
+
+proc flush*(s: DebouncedSaver) =
+  ## Invalidates the pending debounce and saves immediately
+  inc s.generation
+  s.saveProc()
