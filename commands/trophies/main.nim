@@ -5,7 +5,6 @@ import kairosbot/core/command_router
 import kairosbot/commands/registry
 import kairosbot/core/trophy_tracker
 import kairosbot/data/messages
-import kairosbot/data/persistence
 import kairosbot/twitch/chat
 import kairosbot/utils/chat_helpers
 

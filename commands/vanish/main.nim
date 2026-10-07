@@ -4,7 +4,6 @@ import kairosbot/plugin
 import kairosbot/core/command_router
 import kairosbot/commands/registry
 import kairosbot/data/messages
-import kairosbot/data/persistence
 import kairosbot/twitch/chat
 import kairosbot/twitch/helix
 import kairosbot/utils/chat_helpers
