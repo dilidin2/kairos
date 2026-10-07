@@ -1,4 +1,4 @@
-import std/[strutils, tables, json, os, math, asyncdispatch, options, times, random]
+import std/[strutils, tables, json, os, math, asyncdispatch, options, times, random, sequtils, algorithm]
 
 import kairosbot/plugin
 import kairosbot/core/command_router
@@ -89,7 +89,9 @@ proc awardCrashSurvivors(router: CommandRouter, item: string) {.async.} =
   let key = item.toLowerAscii()
   let cs = trophyText(trophyTexts, "crash_survivor", "Crash Survivor",
     "🦴 {user} survived the {item} crash!")
-  for user in market.holdings.keys:
+  # toSeq: during the awaits below a user can sell (removeHolding deletes
+  # from the table), which would invalidate a live iteration
+  for user in toSeq(market.holdings.keys):
     if market.holdings[user].hasKey(key) and market.holdings[user][key] > 0:
       var t = Trophy(name: cs.name, command: "stocks",
                      unlockedAt: toIsoString(now().toTime()))
@@ -108,16 +110,18 @@ proc doTick() {.async.} =
       let phrase = newsPhrases[rand(newsPhrases.high)]
       await safeSend(router.chat, phrase.replace("{item}", e.item))
     of meCrash:
+      # magnitude is the actual signed change (negative for a crash)
       let txt = mtext("crash", "📉 CRASH: {item} -{pct}%")
         .replace("{item}", e.item)
-        .replace("{pct}", $int(e.magnitude * 100.0))
+        .replace("{pct}", $int(round(abs(e.magnitude) * 100.0)))
       await safeSend(router.chat, txt)
-      if e.magnitude >= market.crashThreshold:
-        await awardCrashSurvivors(router, e.item)
+      # a meCrash event is by definition a crash (telegraphed by the
+      # news), so the survivors are always awarded
+      await awardCrashSurvivors(router, e.item)
     of meSurge:
       let txt = mtext("surge", "📈 SURGE: {item} +{pct}%")
         .replace("{item}", e.item)
-        .replace("{pct}", $int(e.magnitude * 100.0))
+        .replace("{pct}", $int(round(abs(e.magnitude) * 100.0)))
       await safeSend(router.chat, txt)
 
 # --- Config ------------------------------------------------------------------------
@@ -133,22 +137,29 @@ proc loadConfig(ctx: PluginContext) =
     echo "[PLUGIN] stocks: stocks.json malformed: ", path
     return
   if node.hasKey("tickSeconds") and node["tickSeconds"].kind == JInt:
-    tickSeconds = node["tickSeconds"].getInt
+    # <= 0 would spin the timer empty (or not at all): keep the current value
+    if node["tickSeconds"].getInt > 0:
+      tickSeconds = node["tickSeconds"].getInt
   if node.hasKey("pnlKing") and node["pnlKing"].kind in {JInt, JFloat}:
     pnlKing = node["pnlKing"].getFloat
   if node.hasKey("millionaire") and node["millionaire"].kind in {JInt, JFloat}:
     millionaire = node["millionaire"].getFloat
   # market behaviour (shocks, crashes, fees and loans)
-  if node.hasKey("shockChance") and node["shockChance"].kind == JInt:
-    market.shockChance = node["shockChance"].getInt
-  if node.hasKey("shockMin") and node["shockMin"].kind == JInt:
-    market.shockMin = node["shockMin"].getInt
-  if node.hasKey("shockMax") and node["shockMax"].kind == JInt:
-    market.shockMax = node["shockMax"].getInt
-  if node.hasKey("crashChance") and node["crashChance"].kind == JInt:
-    market.crashChance = node["crashChance"].getInt
+  if node.hasKey("shockChance") and node["shockChance"].kind in {JInt, JFloat}:
+    market.shockChance = int(node["shockChance"].getFloat)
+  if node.hasKey("shockMin") and node["shockMin"].kind in {JInt, JFloat}:
+    market.shockMin = int(node["shockMin"].getFloat)
+  if node.hasKey("shockMax") and node["shockMax"].kind in {JInt, JFloat}:
+    market.shockMax = int(node["shockMax"].getFloat)
+  # rand(a..b) with a > b would be nonsense: swap
+  if market.shockMin > market.shockMax:
+    swap(market.shockMin, market.shockMax)
+  if node.hasKey("crashChance") and node["crashChance"].kind in {JInt, JFloat}:
+    market.crashChance = int(node["crashChance"].getFloat)
   if node.hasKey("crashThreshold") and node["crashThreshold"].kind in {JInt, JFloat}:
     market.crashThreshold = node["crashThreshold"].getFloat
+  if node.hasKey("maxPrice") and node["maxPrice"].kind in {JInt, JFloat}:
+    market.maxPrice = node["maxPrice"].getFloat
   if node.hasKey("brokerFee") and node["brokerFee"].kind in {JInt, JFloat}:
     market.brokerFee = node["brokerFee"].getFloat / 100.0
   if node.hasKey("loanInterest") and node["loanInterest"].kind in {JInt, JFloat}:
@@ -156,8 +167,8 @@ proc loadConfig(ctx: PluginContext) =
   if node.hasKey("maxLoanPct") and node["maxLoanPct"].kind in {JInt, JFloat}:
     market.maxLoanPct = node["maxLoanPct"].getFloat / 100.0
   var defaultSupply = 1000
-  if node.hasKey("defaultSupply") and node["defaultSupply"].kind == JInt:
-    defaultSupply = node["defaultSupply"].getInt
+  if node.hasKey("defaultSupply") and node["defaultSupply"].kind in {JInt, JFloat}:
+    defaultSupply = int(node["defaultSupply"].getFloat)
   var stocks: seq[Stock] = @[]
   if node.hasKey("stocks") and node["stocks"].kind == JArray:
     for item in node["stocks"]:
@@ -170,10 +181,13 @@ proc loadConfig(ctx: PluginContext) =
         s.price = item["price"].getFloat
       if item.hasKey("volatility") and (item["volatility"].kind == JInt or item["volatility"].kind == JFloat):
         s.volatility = item["volatility"].getFloat
-      if item.hasKey("supply") and item["supply"].kind == JInt:
-        s.supply = item["supply"].getInt
+      if item.hasKey("supply") and item["supply"].kind in {JInt, JFloat}:
+        s.supply = int(item["supply"].getFloat)
       else:
         s.supply = defaultSupply
+      # a new stock starting below minPrice would sit in the
+      # rounding-lottery zone until the first tick: clamp it up
+      s.price = max(s.price, minPrice)
       if s.name.len > 0 and s.volatility > 0.0:
         stocks.add(s)
   # merge: already persisted stocks keep their price, new ones start from the config
@@ -245,7 +259,7 @@ proc cmdStock*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} 
     return
   let leftTpl = mtext("left_suffix", " ({left} left)")
   var lines: seq[string] = @[]
-  for s in market.stocks.values:
+  for s in toSeq(market.stocks.values).sortedByIt(it.name.toLowerAscii()):
     let trend =
       if s.price > s.prevPrice: "📈"
       elif s.price < s.prevPrice: "📉"
@@ -349,10 +363,10 @@ proc cmdBuyAll*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.}
       .replace("{user}", msg.username).replace("{item}", s.name)
     await safeSend(router.chat, txt)
     return
-  # max qty: price + fee must fit in the balance (prices >= 1, so the
-  # search space is at most the balance)
+  # max qty: price + fee must fit in the balance. Start from the analytic
+  # upper bound (the adjustment loop below then runs a handful of times)
   let balance = econ.getBalance(msg.username)
-  var qty = min(rem, balance)
+  var qty = min(rem, int(floor(float(balance) / (s.price * (1.0 + market.brokerFee)))))
   while qty > 0:
     let cost = max(1, int(ceil(s.price * float(qty))))
     if cost + market.brokerFeeFor(float(cost)) <= balance:
@@ -402,7 +416,10 @@ proc cmdLoan*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
     await safeSend(router.chat, txt)
     return
   let balance = econ.getBalance(msg.username)
-  let wealth = float(balance) + market.portfolioValue(msg.username)
+  # debt is subtracted: borrowed coin is not wealth, so repeated loans
+  # can't push the cap towards 100% leverage
+  let wealth = float(balance) + market.portfolioValue(msg.username) -
+               market.debt(msg.username)
   let available = max(0.0, min(market.maxLoanAmount(wealth),
                                market.brokerPool) - market.debt(msg.username))
   let parts = msg.args.splitWhitespace()
@@ -471,16 +488,18 @@ proc cmdRepay*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} 
     amount = float(a)
   # never repay more than the balance (the debit below is then guaranteed)
   amount = min(amount, float(balance))
-  let real = market.repayLoan(msg.username, amount)
+  let (real, pay) = market.repayLoan(msg.username, amount)
   if real <= 0.0:
     let txt = mtext("cannot_repay", "{user}, you can't repay: no balance")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
-  discard econ.debit(msg.username, int(real))
+  # pay <= balance: repayLoan returns the ceiling of `real`, and
+  # real <= amount <= balance with balance a whole number
+  discard econ.debit(msg.username, pay)
   let txt = mtext("repaid",
     "{user} repaid {amount} 🪙 to the broker (left: {debt} 🪙)")
-    .replace("{user}", msg.username).replace("{amount}", $int(real))
+    .replace("{user}", msg.username).replace("{amount}", $pay)
     .replace("{debt}", $market.debt(msg.username))
   await safeSend(router.chat, txt)
 
@@ -493,11 +512,17 @@ proc cmdPortfolio*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.asyn
     await safeSend(router.chat, txt)
     return
   let lineTpl = mtext("holding_line", "{qty} {item} ({value} 🪙)")
+  let delistTpl = mtext("delisted_line", "{qty} {item} (delisted)")
   var lines: seq[string] = @[]
-  for (item, qty) in holdings:
-    let s = market.stock(item).get()
-    lines.add(lineTpl.replace("{qty}", $qty).replace("{item}", s.name)
-      .replace("{value}", $round2(float(qty) * s.price)))
+  for (item, qty) in holdings.sortedByIt(it[0].toLowerAscii()):
+    # the stock can have disappeared from the market (removed from
+    # stocks.json): value it as 0 instead of raising on .get()
+    let sOpt = market.stock(item)
+    if sOpt.isNone:
+      lines.add(delistTpl.replace("{qty}", $qty).replace("{item}", item))
+      continue
+    lines.add(lineTpl.replace("{qty}", $qty).replace("{item}", sOpt.get().name)
+      .replace("{value}", $round2(float(qty) * sOpt.get().price)))
   let value = market.portfolioValue(msg.username)
   let profit = market.pnl(msg.username)
   let sign = if profit >= 0: "+" else: ""
@@ -527,9 +552,15 @@ proc register*(ctx: PluginContext) =
   msgTexts = loadMsgs(ctx.dir / "messages.json")
   newsPhrases = loadNews(ctx)
   loadConfig(ctx)
-  # catch-up: if there was an open market, it does a single update tick
+  # seed the RNG: without this the market replays the same random
+  # sequence on every boot
+  randomize()
+  # catch-up: if there was an open market, it does a single update tick.
+  # Its news events are discarded, so drop the crashes they telegraphed:
+  # no crash without its rumour
   if market.lastTick > 0.0:
     discard market.tick()
+    market.pendingCrash = initTable[string, bool]()
   # periodic timer
   ctx.every(tickSeconds, doTick)
   # shutdown hook: saves the market

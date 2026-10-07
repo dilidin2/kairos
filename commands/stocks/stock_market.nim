@@ -67,9 +67,13 @@ type
     shockMax*: int
     ## rare event maximum amplitude, in percent
     crashChance*: int
-    ## chance per tick of a pre-crash rumour, in percent
+    ## chance per tick of a pre-crash rumour, in percent. Kept equal to
+    ## shockChance by default: with equal chances and amplitude the
+    ## expected drift of the log-price is zero.
     crashThreshold*: float
     ## shock >= this is announced as a crash/surge (+ survivor trophy)
+    maxPrice*: float
+    ## hard upper bound for a stock price (safety net against runaway growth)
     brokerFee*: float
     ## fee on every trade, as a fraction (0.02 = 2%)
     loanInterest*: float
@@ -86,7 +90,7 @@ proc round2*(x: float): float =
   ## Rounds to 2 decimal places
   result = round(x * 100.0) / 100.0
 
-const minPrice = 1.0
+const minPrice* = 1.0
   ## Hard lower bound for a stock price. Below this the round2 rounding in
   ## transactions starts to behave like a lottery (fractions of a coin), so
   ## the floor keeps every transaction in the normal integer-coin range.
@@ -121,8 +125,9 @@ proc newStockMarket*(dataPath: string): StockMarket =
     shockChance: 5,
     shockMin: 20,
     shockMax: 40,
-    crashChance: 2,
+    crashChance: 5,
     crashThreshold: 0.20,
+    maxPrice: 100000.0,
     brokerFee: 0.02,
     loanInterest: 0.01,
     maxLoanPct: 0.50
@@ -152,39 +157,50 @@ proc tick*(m: StockMarket): seq[MarketEvent] =
   ## rumours, (3) loan interest. Returns the chat events in order.
   result = @[]
   # 1) crashes announced by the news of the previous tick
+  var crashedThisTick: Table[string, bool]
   for key in toSeq(m.pendingCrash.keys):
     if m.stocks.hasKey(key):
       var item = m.stocks[key]
       let magnitude = float(rand(m.shockMin .. m.shockMax)) / 100.0
-      item.prevPrice = item.price
+      let oldPrice = item.price
       item.price = max(round2(item.price * exp(-magnitude)), minPrice)
       m.stocks[key] = item
+      crashedThisTick[key] = true
+      # the event carries the ACTUAL signed price change (exp(-0.30) is
+      # -25.9%, not -30%), so chat messages are exact
       result.add(MarketEvent(kind: meCrash, item: item.name,
-                             magnitude: magnitude))
+                             magnitude: item.price / oldPrice - 1.0))
   m.pendingCrash = initTable[string, bool]()
   # 2) normal trading: walk, surges, crash rumours
   for key in m.stocks.keys:
     var item = m.stocks[key]
-    item.prevPrice = item.price
+    # keep the pre-crash price as the trend reference (step 1 already set
+    # prevPrice to the pre-crash value)
+    if not crashedThisTick.hasKey(key):
+      item.prevPrice = item.price
     # random walk: log-normal so the median (not the mean) stays flat.
     # A +x followed by a -x returns to the exact previous price
     # (exp(x)*exp(-x)=1), which kills the volatility drag that made
     # prices decay tick after tick.
     let change = rand(-item.volatility .. item.volatility)
     item.price = round2(item.price * exp(change))
-    # rare positive shock (surge), immediate
-    if rand(100) < m.shockChance:
+    # rare positive shock (surge), immediate. rand(99): 0..99, so
+    # `rand(99) < N` is exactly N percent. The two events roll
+    # INDEPENDENTLY (not if/elif): with equal chances the expected
+    # drift of the log-price is exactly zero.
+    if rand(99) < m.shockChance:
       let magnitude = float(rand(m.shockMin .. m.shockMax)) / 100.0
+      let oldPrice = item.price
       item.price = round2(item.price * exp(magnitude))
       if magnitude >= m.crashThreshold:
         result.add(MarketEvent(kind: meSurge, item: item.name,
-                               magnitude: magnitude))
+                               magnitude: item.price / oldPrice - 1.0))
     # pre-crash rumour: the crash lands on the NEXT tick
-    elif rand(100) < m.crashChance:
+    if rand(99) < m.crashChance:
       m.pendingCrash[key] = true
       result.add(MarketEvent(kind: meNews, item: item.name, magnitude: 0.0))
-    # never let a tick push a price into the rounding-lottery zone (see minPrice)
-    item.price = max(item.price, minPrice)
+    # keep the price inside [minPrice, maxPrice] (see minPrice)
+    item.price = clamp(item.price, minPrice, m.maxPrice)
     m.stocks[key] = item
   # 3) debts grow with interest
   for u in toSeq(m.loans.keys):
@@ -225,6 +241,7 @@ proc addHolding*(m: StockMarket, user: string, item: string, qty: int, cash: flo
     m.holdings[u] = initTable[string, int]()
   m.holdings[u][i] = m.holdings[u].getOrDefault(i, 0) + qty
   m.invested[u] = m.invested.getOrDefault(u, 0.0) + cash
+  scheduleMarketSave(m)
 
 proc removeHolding*(m: StockMarket, user: string, item: string, qty: int, cash: float): bool =
   ## Removes quantity from the portfolio. False if there isn't enough.
@@ -240,6 +257,7 @@ proc removeHolding*(m: StockMarket, user: string, item: string, qty: int, cash: 
   if m.holdings[u].len == 0:
     m.holdings.del(u)
   m.invested[u] = m.invested.getOrDefault(u, 0.0) - cash
+  scheduleMarketSave(m)
   result = true
 
 proc portfolioValue*(m: StockMarket, user: string): float =
@@ -268,13 +286,14 @@ proc holdingsList*(m: StockMarket, user: string): seq[(string, int)] =
 # --- Broker and loans ----------------------------------------------------------
 
 proc brokerFeeFor*(m: StockMarket, amount: float): int =
-  ## Integer fee on a trade of `amount` coins (rounded down: tiny trades
-  ## pay no fee, the broker never takes more than the true value)
-  result = int(floor(amount * m.brokerFee))
+  ## Integer fee on a trade of `amount` coins (rounded up: every non-
+  ## trivial trade pays at least 1 coin, so the fee pool is a real sink)
+  result = int(ceil(amount * m.brokerFee))
 
 proc creditBroker*(m: StockMarket, fee: int) =
   ## Adds fee income to the broker pool
   m.brokerPool = round2(m.brokerPool + float(fee))
+  scheduleMarketSave(m)
 
 proc debt*(m: StockMarket, user: string): float =
   ## Total debt of a user (principal + accrued interest)
@@ -292,19 +311,25 @@ proc takeLoan*(m: StockMarket, user: string, amount: float): bool =
   let u = normUser(user)
   m.brokerPool = round2(m.brokerPool - amount)
   m.loans[u] = round2(m.loans.getOrDefault(u, 0.0) + amount)
+  scheduleMarketSave(m)
   result = true
 
-proc repayLoan*(m: StockMarket, user: string, amount: float): float =
-  ## Repays up to `amount` to the broker pool. Returns the amount
-  ## actually repaid (0 if the user has no debt).
+proc repayLoan*(m: StockMarket, user: string, amount: float): (float, int) =
+  ## Repays up to `amount` to the broker pool. Returns (real, pay):
+  ## `real` is the debt actually cleared, `pay` the whole coins the user
+  ## pays (ceiling: any overpay is burned, the broker never mints coins).
+  ## (0, 0) if the user has no debt.
   let u = normUser(user)
-  result = min(amount, m.loans.getOrDefault(u, 0.0))
-  if result <= 0.0:
-    return
-  m.brokerPool = round2(m.brokerPool + result)
-  m.loans[u] = round2(m.loans[u] - result)
+  let real = min(amount, m.loans.getOrDefault(u, 0.0))
+  if real <= 0.0:
+    return (0.0, 0)
+  let pay = int(ceil(real))
+  m.brokerPool = round2(m.brokerPool + float(pay))
+  m.loans[u] = round2(m.loans[u] - real)
   if m.loans[u] <= 0.0:
     m.loans.del(u)
+  scheduleMarketSave(m)
+  return (real, pay)
 
 # --- Persistence ----------------------------------------------------------------
 
@@ -338,9 +363,9 @@ proc scheduleMarketSave*(m: StockMarket) =
   m.saveFuture = some(f)
 
 proc forceSave*(m: StockMarket) {.async.} =
-  ## Saves immediately, ignoring the debounce
+  ## Saves immediately: bumps the generation so a pending debounced save
+  ## becomes stale, then saves without awaiting the old future (which may
+  ## have failed and would have blocked the real save)
   m.saveGeneration += 1
-  if m.saveFuture.isSome:
-    await m.saveFuture.get()
-    m.saveFuture = none(Future[void])
+  m.saveFuture = none(Future[void])
   saveMarket(m)

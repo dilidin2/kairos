@@ -29,13 +29,19 @@
   // Chance (in percent, 0-100) per tick and per stock that a pre-crash
   // rumour is announced (news.json): the crash itself lands on the NEXT
   // tick with an amplitude in [shockMin, shockMax], so chat has one tick
-  // to react.
-  "crashChance": 2,
+  // to react. Keep it EQUAL to shockChance: with equal chances and the
+  // same amplitude the expected price drift is zero (surges and crashes
+  // balance out).
+  "crashChance": 5,
 
   // A shock with |amplitude| >= this (as a fraction, 0.2 = 20%)
   // is announced in chat with 📈/📉 and, if negative, "Crash Survivor"
   // trophies are awarded to whoever held that stock.
   "crashThreshold": 0.2,
+
+  // Hard upper bound for a stock price (safety net against runaway
+  // growth; with balanced drift it is practically unreachable).
+  "maxPrice": 100000.0,
 
   // Broker fee on every buy/sell, in percent (2.0 = 2%). The fees are
   // collected in a real pool (persisted) that is the ONLY source of

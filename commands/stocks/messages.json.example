@@ -32,6 +32,8 @@
   "holding_line": "{qty} {item} ({value} 🪙)",
   "portfolio_total": "Total: {value} 🪙 (PnL {pnl})",
   "debt_line": "Debt: {debt} 🪙",
+  // holding line for a stock removed from the market (worth 0)
+  "delisted_line": "{qty} {item} (delisted)",
 
   // --- !loan / !repay ---
   "loan_status": "{user}, you owe {debt} 🪙. You can borrow up to {available} 🪙",
