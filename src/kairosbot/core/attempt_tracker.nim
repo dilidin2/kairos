@@ -1,4 +1,4 @@
-import std/[tables, times, asyncdispatch, options, json]
+import std/[tables, times, asyncdispatch, json]
 
 import ../data/persistence
 
@@ -10,8 +10,12 @@ type
   AttemptTracker* = ref object
     attempts*: Table[string, Table[string, AttemptEntry]]
     dataPath*: string
-    saveGeneration*: int
-    saveFuture*: Option[Future[void]]
+    saver: DebouncedSaver
+
+proc saveAttempts*(tracker: AttemptTracker) =
+  ## Saves the attempts to the JSON file
+  saveTyped(tracker.dataPath, tracker.attempts)
+  discard
 
 proc newAttemptTracker*(dataPath: string = "data/attempts.json"): AttemptTracker =
   ## Creates a new AttemptTracker and loads the persistent data
@@ -19,7 +23,9 @@ proc newAttemptTracker*(dataPath: string = "data/attempts.json"): AttemptTracker
 
   let attempts = loadTyped(dataPath, default)
 
-  result = AttemptTracker(attempts: attempts, dataPath: dataPath, saveGeneration: 0, saveFuture: none(Future[void]))
+  var tracker = AttemptTracker(attempts: attempts, dataPath: dataPath)
+  tracker.saver = newDebouncedSaver(proc () {.closure.} = saveAttempts(tracker))
+  result = tracker
 
 proc getCurrentDate*(): string =
   ## Returns the current UTC date in yyyy-MM-dd format
@@ -46,29 +52,9 @@ proc hasAttemptsLeft*(tracker: AttemptTracker, user: string, command: string, ma
   else:
     result = false
 
-proc saveAttempts*(tracker: AttemptTracker) =
-  ## Saves the attempts to the JSON file
-  saveTyped(tracker.dataPath, tracker.attempts)
-  discard
-
-proc performDebounceSave*(tracker: AttemptTracker, myGen: int) {.async.} =
-  ## Performs the debounced save after 5s if this is still the current generation
-  await sleepAsync(5000)
-
-  if myGen != tracker.saveGeneration:
-    return
-  else:
-    saveAttempts(tracker)
-    tracker.saveFuture = none(Future[void])
-
 proc scheduleSave*(tracker: AttemptTracker) =
   ## Schedules a debounced save (5s)
-  tracker.saveGeneration += 1
-  let locGen = tracker.saveGeneration
-
-  let deb = performDebounceSave(tracker, locGen)
-  
-  tracker.saveFuture = some(deb)
+  tracker.saver.schedule()
 
 proc useAttempt*(tracker: AttemptTracker, user: string, command: string) =
   ## Consumes an attempt for a user/command and schedules a save
@@ -101,11 +87,5 @@ proc getRemainingAttempts*(tracker: AttemptTracker, user: string, command: strin
 
 proc forceSave*(tracker: AttemptTracker) {.async.} =
   ## Saves immediately, ignoring the debounce
-  tracker.saveGeneration += 1
-
-  if tracker.saveFuture.isSome:
-    await tracker.saveFuture.get()
-    tracker.saveFuture = options.none(Future[void])
-
-  saveAttempts(tracker)
+  tracker.saver.flush()
 
