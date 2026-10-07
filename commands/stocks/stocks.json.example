@@ -3,7 +3,7 @@
 
   // How often (in seconds) the market does a tick: one random-walk step
   // for every stock, plus a chance of a rare surge and a chance of a
-  // pre-crash rumour (main.nim: doTick).
+  // crash on the next tick (main.nim: doTick).
   "tickSeconds": 60,
 
   // PnL threshold for the "PnL King" trophy: first user whose
@@ -26,17 +26,15 @@
   // Maximum amplitude of a rare shock, in percent.
   "shockMax": 40,
 
-  // Chance (in percent, 0-100) per tick and per stock that a pre-crash
-  // rumour is announced (news.json): the crash itself lands on the NEXT
-  // tick with an amplitude in [shockMin, shockMax], so chat has one tick
-  // to react. Keep it EQUAL to shockChance: with equal chances and the
-  // same amplitude the expected price drift is zero (surges and crashes
-  // balance out).
+  // Chance (in percent, 0-100) per tick and per stock that a crash lands
+  // on the NEXT tick with an amplitude in [shockMin, shockMax]. Keep it
+  // EQUAL to shockChance: with equal chances and the same amplitude the
+  // expected price drift is zero (surges and crashes balance out).
   "crashChance": 5,
 
-  // A shock with |amplitude| >= this (as a fraction, 0.2 = 20%)
-  // is announced in chat with 📈/📉 and, if negative, "Crash Survivor"
-  // trophies are awarded to whoever held that stock.
+  // A shock with |amplitude| >= this (as a fraction, 0.2 = 20%) counts as
+  // a crash: "Crash Survivor" trophies are awarded to whoever held that
+  // stock. (The crashes themselves are silent in chat.)
   "crashThreshold": 0.2,
 
   // Hard upper bound for a stock price (safety net against runaway
@@ -54,6 +52,11 @@
   // Max loan as a percent of the user's wealth (balance + portfolio
   // value) (50 = 50%). A broke user gets a smaller or zero cap.
   "maxLoanPct": 50,
+
+  // Dividend per tick, as a percent of each holder's portfolio value
+  // (0.1 = 0.1% per tick). The fractional coins accrue per user and are
+  // paid out in whole coins as soon as they reach 1. 0 = no dividends.
+  "dividendPct": 0.1,
 
   // Default total shares per stock when "supply" is not set on it.
   "defaultSupply": 1000,

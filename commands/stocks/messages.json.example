@@ -43,9 +43,5 @@
   "borrowed": "{user} borrowed {amount} 🪙 from the broker (interest {interest}% per tick)",
   "no_debt": "{user}, you have no debt",
   "cannot_repay": "{user}, you can't repay: no balance",
-  "repaid": "{user} repaid {amount} 🪙 to the broker (left: {debt} 🪙)",
-
-  // --- market events (doTick) ---
-  "crash": "📉 CRASH: {item} -{pct}%",
-  "surge": "📈 SURGE: {item} +{pct}%"
+  "repaid": "{user} repaid {amount} 🪙 to the broker (left: {debt} 🪙)"
 }

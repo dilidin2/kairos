@@ -17,12 +17,8 @@ type
     ## total shares in existence: all users combined can never hold more
 
   MarketEventKind* = enum
-    meNews
-    ## pre-crash rumour: a crash of `item` lands on the NEXT tick
     meCrash
     ## the crash hit (negative shock, executed)
-    meSurge
-    ## a positive shock hit
 
   MarketEvent* = object
     kind*: MarketEventKind
@@ -40,8 +36,11 @@ type
     ## real coins collected as broker fees: the only source of loan money
     loans*: Table[string, float]
     ## user (lowercase) -> total debt (principal + accrued interest)
+    dividendAccrual*: Table[string, float]
+    ## user (lowercase) -> fractional coins accrued as dividends, not yet
+    ## paid out (paid in whole coins by payDividends)
     pendingCrash*: Table[string, bool]
-    ## items that crash on the next tick (telegraphed by a meNews event)
+    ## items that crash on the next tick
     lastTick*: float
 
   StockMarket* = ref object
@@ -55,6 +54,8 @@ type
     ## real coins collected as broker fees
     loans*: Table[string, float]
     ## user (lowercase) -> total debt (principal + interest)
+    dividendAccrual*: Table[string, float]
+    ## user (lowercase) -> fractional dividend coins not yet paid out
     pendingCrash*: Table[string, bool]
     ## items that crash on the next tick
     dataPath*: string
@@ -80,6 +81,8 @@ type
     ## interest on debts per tick, as a fraction (0.01 = 1%)
     maxLoanPct*: float
     ## max loan as a fraction of the user's wealth (0.5 = 50%)
+    dividendPct*: float
+    ## dividend per tick as a fraction of the holdings value (0.001 = 0.1%)
 
 ## Shock, crash, fee and loan defaults (overridable in stocks.json):
 ## 5% surge chance per tick, 2% crash-rumour chance, shock amplitude
@@ -105,6 +108,7 @@ proc newStockMarket*(dataPath: string): StockMarket =
     invested: initTable[string, float](),
     brokerPool: 0.0,
     loans: initTable[string, float](),
+    dividendAccrual: initTable[string, float](),
     pendingCrash: initTable[string, bool](),
     lastTick: 0.0
   )
@@ -115,6 +119,7 @@ proc newStockMarket*(dataPath: string): StockMarket =
     invested: data.invested,
     brokerPool: data.brokerPool,
     loans: data.loans,
+    dividendAccrual: data.dividendAccrual,
     pendingCrash: data.pendingCrash,
     dataPath: dataPath,
     lastTick: data.lastTick,
@@ -126,7 +131,8 @@ proc newStockMarket*(dataPath: string): StockMarket =
     maxPrice: 100000.0,
     brokerFee: 0.02,
     loanInterest: 0.01,
-    maxLoanPct: 0.50
+    maxLoanPct: 0.50,
+    dividendPct: 0.0
   )
   m.saver = newDebouncedSaver(proc () {.closure.} = saveMarket(m))
   for s in data.stocks:
@@ -148,13 +154,14 @@ proc stock*(m: StockMarket, item: string): Option[Stock] =
     result = none(Stock)
 
 proc scheduleMarketSave*(m: StockMarket)  # forward declaration
+proc portfolioValue*(m: StockMarket, user: string): float  # forward declaration
 
 proc tick*(m: StockMarket): seq[MarketEvent] =
   ## One market step. Order: (1) execute the crashes telegraphed by the
-  ## news of the previous tick, (2) random walk + surges + new crash
-  ## rumours, (3) loan interest. Returns the chat events in order.
+  ## previous tick, (2) random walk + surges + new crash rumours,
+  ## (3) loan interest, (4) dividend accrual. Returns the crash events.
   result = @[]
-  # 1) crashes announced by the news of the previous tick
+  # 1) crashes telegraphed by the previous tick
   var crashedThisTick: Table[string, bool]
   for key in toSeq(m.pendingCrash.keys):
     if m.stocks.hasKey(key):
@@ -188,21 +195,22 @@ proc tick*(m: StockMarket): seq[MarketEvent] =
     # drift of the log-price is exactly zero.
     if rand(99) < m.shockChance:
       let magnitude = float(rand(m.shockMin .. m.shockMax)) / 100.0
-      let oldPrice = item.price
       item.price = round2(item.price * exp(magnitude))
-      if magnitude >= m.crashThreshold:
-        result.add(MarketEvent(kind: meSurge, item: item.name,
-                               magnitude: item.price / oldPrice - 1.0))
     # pre-crash rumour: the crash lands on the NEXT tick
     if rand(99) < m.crashChance:
       m.pendingCrash[key] = true
-      result.add(MarketEvent(kind: meNews, item: item.name, magnitude: 0.0))
     # keep the price inside [minPrice, maxPrice] (see minPrice)
     item.price = clamp(item.price, minPrice, m.maxPrice)
     m.stocks[key] = item
   # 3) debts grow with interest
   for u in toSeq(m.loans.keys):
     m.loans[u] = round2(m.loans[u] * (1.0 + m.loanInterest))
+  # 4) dividends: every holder accrues a per-tick cut of their holdings
+  # value; the whole-coin part is paid out by payDividends
+  if m.dividendPct > 0.0:
+    for u in toSeq(m.holdings.keys):
+      m.dividendAccrual[u] = m.dividendAccrual.getOrDefault(u, 0.0) +
+                             m.portfolioValue(u) * m.dividendPct
   m.lastTick = epochTime()
   scheduleMarketSave(m)
 
@@ -281,6 +289,25 @@ proc holdingsList*(m: StockMarket, user: string): seq[(string, int)] =
     for item, qty in m.holdings[u].pairs:
       result.add((item, qty))
 
+# --- Dividends -----------------------------------------------------------------
+
+proc payDividends*(m: StockMarket, user: string): int =
+  ## Pays out the whole-coin part of the user's accrued dividend (the
+  ## fractional remainder keeps accruing). 0 if there is nothing to pay.
+  let u = normUser(user)
+  if not m.dividendAccrual.hasKey(u):
+    result = 0
+    return
+  let whole = int(floor(m.dividendAccrual[u]))
+  if whole < 1:
+    result = 0
+    return
+  m.dividendAccrual[u] -= float(whole)
+  if m.dividendAccrual[u] <= 0.0:
+    m.dividendAccrual.del(u)
+  scheduleMarketSave(m)
+  result = whole
+
 # --- Broker and loans ----------------------------------------------------------
 
 proc brokerFeeFor*(m: StockMarket, amount: float): int =
@@ -340,6 +367,7 @@ proc saveMarket*(m: StockMarket) =
     invested: m.invested,
     brokerPool: m.brokerPool,
     loans: m.loans,
+    dividendAccrual: m.dividendAccrual,
     pendingCrash: m.pendingCrash,
     lastTick: m.lastTick
   )

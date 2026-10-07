@@ -25,21 +25,6 @@ var
   ## Translatable one-off trophy texts from trophies.json
   msgTexts*: MsgTexts
   ## Translatable user-facing chat texts from messages.json
-  newsPhrases*: seq[string]
-  ## Pre-crash rumour templates from news.json ({item} placeholder)
-
-proc loadNews(ctx: PluginContext): seq[string] =
-  ## Loads news.json: an array of rumour templates ({item} placeholder)
-  result = @[]
-  let path = ctx.dir / "news.json"
-  if fileExists(path):
-    let node = loadJson(path)
-    if node.kind == JArray:
-      for p in node:
-        if p.kind == JString and p.getStr.len > 0:
-          result.add(p.getStr)
-  if result.len == 0:
-    result = @["📰 Rumour mill: the {item} board is panicking..."]
 
 # --- Trophies ------------------------------------------------------------------------
 
@@ -80,27 +65,18 @@ proc awardCrashSurvivors(router: CommandRouter, item: string) {.async.} =
 # --- Tick timer --------------------------------------------------------------------
 
 proc doTick() {.async.} =
-  ## One market step: news, crashes and surges announced in chat
+  ## One market step: survivor trophies and dividend payouts (silent in
+  ## chat: no news, no crash/surge announcements)
   let router = pluginCtx.platform.router
   for e in market.tick():
-    case e.kind
-    of meNews:
-      let phrase = randElem(newsPhrases)
-      await safeSend(router.chat, phrase.replace("{item}", e.item))
-    of meCrash:
-      # magnitude is the actual signed change (negative for a crash)
-      let txt = msgText(msgTexts, "crash", "📉 CRASH: {item} -{pct}%")
-        .replace("{item}", e.item)
-        .replace("{pct}", $int(round(abs(e.magnitude) * 100.0)))
-      await safeSend(router.chat, txt)
-      # a meCrash event is by definition a crash (telegraphed by the
-      # news), so the survivors are always awarded
+    if e.kind == meCrash:
       await awardCrashSurvivors(router, e.item)
-    of meSurge:
-      let txt = msgText(msgTexts, "surge", "📈 SURGE: {item} +{pct}%")
-        .replace("{item}", e.item)
-        .replace("{pct}", $int(round(abs(e.magnitude) * 100.0)))
-      await safeSend(router.chat, txt)
+  # dividends: pay each holder the whole-coin part of their accrual
+  if not econ.isNil:
+    for user in toSeq(market.holdings.keys):
+      let pay = market.payDividends(user)
+      if pay > 0:
+        econ.credit(user, pay)
 
 # --- Config ------------------------------------------------------------------------
 
@@ -144,6 +120,8 @@ proc loadConfig(ctx: PluginContext) =
     market.loanInterest = node["loanInterest"].getFloat / 100.0
   if node.hasKey("maxLoanPct") and node["maxLoanPct"].kind in {JInt, JFloat}:
     market.maxLoanPct = node["maxLoanPct"].getFloat / 100.0
+  if node.hasKey("dividendPct") and node["dividendPct"].kind in {JInt, JFloat}:
+    market.dividendPct = node["dividendPct"].getFloat / 100.0
   var defaultSupply = 1000
   if node.hasKey("defaultSupply") and node["defaultSupply"].kind in {JInt, JFloat}:
     defaultSupply = int(node["defaultSupply"].getFloat)
@@ -528,7 +506,6 @@ proc register*(ctx: PluginContext) =
   econ = cast[EconomyService](ctx.platform.services.getOrDefault("economy", nil))
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
   msgTexts = loadMsgTexts(ctx.dir / "messages.json")
-  newsPhrases = loadNews(ctx)
   loadConfig(ctx)
   # seed the RNG: without this the market replays the same random
   # sequence on every boot
