@@ -19,7 +19,7 @@ import simpleQuests
 ## the pool and announces the quest in character. Completion is verified
 ## periodically with a yes/no precheck; on expiry the "defeated" message
 ## goes out, followed by the separate failure message from config.json.
-## The simple quests (simple_quests.jsonc) are the fallback
+## The simple quests (simple_quests.json) are the fallback
 ## when the LLM is inactive or fails.
 ##
 ## All internal prompts are in English; `bot_language` (global config)
@@ -671,7 +671,7 @@ proc register*(ctx: PluginContext) =
     questFailedMsgSingle: failedSingle,
     questFailedMsgMulti: failedMulti,
     definitions: loadDefinitions(ctx.dir / "quest_definitions.json"),
-    simpleQuests: loadSimpleQuests(ctx.dir / "simple_quests.jsonc"),
+    simpleQuests: loadSimpleQuests(ctx.dir / "simple_quests.json"),
     pool: @[],
     active: initTable[string, ActiveQuest](),
     data: loadTyped[QuestData](ctx.statePath, QuestData()),

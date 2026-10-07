@@ -1,6 +1,6 @@
 import std/[json, os, random]
 
-## Simple quests (fallback): defined in simple_quests.jsonc (translatable
+## Simple quests (fallback): defined in simple_quests.json (translatable
 ## texts, fixed behaviour). Used only if llm_active is false
 ## or if the LLM fails. Weighted selection (weight) + cyclic
 ## (excludes the last 5 given, anti-spam).
@@ -49,20 +49,20 @@ proc stripJsonComments*(text: string): string =
       i += 1
 
 proc loadSimpleQuests*(path: string): seq[SimpleQuest] =
-  ## Parses simple_quests.jsonc (no crash: malformed file → empty list)
+  ## Parses simple_quests.json (no crash: malformed file → empty list)
   result = @[]
   if not fileExists(path):
-    echo "[PLUGIN] quests: simple_quests.jsonc missing: ", path
+    echo "[PLUGIN] quests: simple_quests.json missing: ", path
     return
   let clean = stripJsonComments(readFile(path))
   var node: JsonNode
   try:
     node = parseJson(clean)
   except CatchableError as e:
-    echo "[PLUGIN] quests: simple_quests.jsonc malformed: ", e.msg
+    echo "[PLUGIN] quests: simple_quests.json malformed: ", e.msg
     return
   if node.kind != JArray:
-    echo "[PLUGIN] quests: simple_quests.jsonc is not a list"
+    echo "[PLUGIN] quests: simple_quests.json is not a list"
     return
   for item in node:
     if item.kind != JObject:
