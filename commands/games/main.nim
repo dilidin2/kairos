@@ -1,4 +1,4 @@
-import std/[strutils, random, asyncdispatch, tables, json, os, times, parseutils]
+import std/[strutils, random, asyncdispatch, tables, json, os, parseutils]
 
 import kairosbot/plugin
 import kairosbot/core/command_router
@@ -6,7 +6,8 @@ import kairosbot/commands/registry
 import kairosbot/core/trophy_tracker
 import kairosbot/core/attempt_tracker
 import kairosbot/core/economy
-import kairosbot/data/persistence
+import kairosbot/data/messages
+import kairosbot/utils/common
 import kairosbot/twitch/chat
 import kairosbot/utils/chat_helpers
 
@@ -58,29 +59,8 @@ var
   ## Economy service (exposed by the economy plugin): used by !bet
   trophyTexts*: Table[string, TrophyText]
   ## Translatable one-off trophy texts from trophies.json
-  msgTexts*: Table[string, string]
+  msgTexts*: MsgTexts
   ## Translatable user-facing chat texts from messages.json
-
-# --- Texts --------------------------------------------------------------------
-
-proc loadMsgs(path: string): Table[string, string] =
-  ## Loads messages.json: flat key -> template pairs
-  result = initTable[string, string]()
-  if not fileExists(path):
-    return
-  let node = loadJson(path)
-  if node.kind != JObject:
-    return
-  for key, value in node.pairs:
-    if value.kind == JString:
-      result[key] = value.getStr
-
-proc mtext(key, fallback: string): string =
-  ## A user-facing message template (messages.json) with English fallback
-  if msgTexts.hasKey(key):
-    result = msgTexts[key]
-  else:
-    result = fallback
 
 # --- Slot machine ------------------------------------------------------------------
 
@@ -88,19 +68,12 @@ proc slotsSpec(): CommandSpec =
   ## The !slots spec from commands.json (empty default if not loaded)
   result = specs.getOrDefault("slots", CommandSpec(name: "slots"))
 
-proc paramStrSeq(spec: CommandSpec, key: string): seq[string] =
-  ## The string list from a spec param (empty if missing/malformed)
-  if spec.params.hasKey(key) and spec.params[key].kind == JArray:
-    for s in spec.params[key]:
-      if s.kind == JString and s.getStr.len > 0:
-        result.add(s.getStr)
-
 proc getSlotSymbols*(): seq[string] =
   ## Available symbols from the `slot_symbols` param. Each symbol is a
   ## whole string: some emoji (e.g. 7️⃣) are multi-codepoint, so
   ## comparisons are always whole-string against whole-string, never
   ## char/Rune.
-  let syms = paramStrSeq(slotsSpec(), "slot_symbols")
+  let syms = specStrSeqParam(slotsSpec(), "slot_symbols")
   result = if syms.len > 0: syms else: DefaultSlotSymbols
 
 proc getSlotCombos*(): seq[SlotCombo] =
@@ -131,7 +104,7 @@ proc getWinningCombos*(): seq[seq[string]] =
 proc generateWinningCombo*(): seq[string] =
   ## Generates a random winning combo
   let combos = getWinningCombos()
-  result = combos[rand(combos.len - 1)]
+  result = randElem(combos)
 
 proc generateLosingCombo*(): seq[string] =
   ## Generates a losing combo: by construction it does not match any
@@ -142,7 +115,7 @@ proc generateLosingCombo*(): seq[string] =
   while true:
     combo = @[]
     for i in 0 .. 2:
-      combo.add(symbols[rand(symbols.len - 1)])
+      combo.add(randElem(symbols))
     if not combos.contains(combo):
       break
   result = combo
@@ -162,17 +135,17 @@ proc formatSlotResult*(res: SlotResult, betOn: string): string =
   let line = res.symbols.join(" ")
   var text: string
   if res.isWin:
-    text = mtext("slot_win", "🎉 {line} 🎉 WIN!").replace("{line}", line)
+    text = msgText(msgTexts, "slot_win", "🎉 {line} 🎉 WIN!").replace("{line}", line)
     if betOn.len > 0 and res.symbols.contains(betOn):
-      text &= mtext("slot_guess", " You even guessed the {symbol}!")
+      text &= msgText(msgTexts, "slot_guess", " You even guessed the {symbol}!")
         .replace("{symbol}", betOn)
   else:
     if betOn.len > 0:
-      text = mtext("slot_bet_lose", "Bet on {symbol}: {line} — nope, try again!")
+      text = msgText(msgTexts, "slot_bet_lose", "Bet on {symbol}: {line} — nope, try again!")
         .replace("{symbol}", betOn)
         .replace("{line}", line)
     else:
-      text = mtext("slot_lose", "{line} — nope, try again!")
+      text = msgText(msgTexts, "slot_lose", "{line} — nope, try again!")
         .replace("{line}", line)
   result = text
 
@@ -181,14 +154,14 @@ proc formatSlotResult*(res: SlotResult, betOn: string): string =
 proc get8ballResponse*(): string =
   ## Returns a random magic 8-ball response (from the `responses` param)
   let spec = specs.getOrDefault("8ball", CommandSpec(name: "8ball"))
-  let resp = paramStrSeq(spec, "responses")
+  let resp = specStrSeqParam(spec, "responses")
   let list = if resp.len > 0: resp else: Default8ballResponses
-  result = list[rand(list.len - 1)]
+  result = randElem(list)
 
 proc getFlipOutcomes*(): (string, string) =
   ## (heads, tails) from the `flip_outcomes` param of !flip
   let spec = specs.getOrDefault("flip", CommandSpec(name: "flip"))
-  let opts = paramStrSeq(spec, "flip_outcomes")
+  let opts = specStrSeqParam(spec, "flip_outcomes")
   if opts.len == 2:
     result = (opts[0], opts[1])
   else:
@@ -198,11 +171,7 @@ proc getFlipOutcomes*(): (string, string) =
 
 proc getWinProbability*(spec: CommandSpec): float =
   ## Win probability from the params of commands.json (default 0.15)
-  result = DefaultWinProbability
-  if spec.params.hasKey("win_probability"):
-    let n = spec.params["win_probability"]
-    if n.kind == JInt or n.kind == JFloat:
-      result = n.getFloat
+  result = specFloatParam(spec, "win_probability", DefaultWinProbability)
 
 # --- Trofei --------------------------------------------------------------------------
 
@@ -237,20 +206,12 @@ proc create8ballRules*(): seq[TrophyRule] =
 
 # --- Handlers ---------------------------------------------------------------------------
 
-proc sendTrophyNotifs(chat: TwitchChat, username: string,
-                      trophies: seq[Trophy]) {.async.} =
-  let tpl = trophyText(trophyTexts, "unlock", "",
-    "🏆 {user} unlocked the trophy \"{name}\"!")
-  for t in trophies:
-    let msg = tpl.message.replace("{user}", username).replace("{name}", t.name)
-    await safeSend(chat, msg)
-
 proc cmd8ball*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !8ball - magic answer to the user's question
   let resp = get8ballResponse()
   let trophies = router.trophyTracker.recordEvent(msg.username, "8ball", "ask")
   await safeSend(router.chat, msg.username & ", " & resp)
-  await sendTrophyNotifs(router.chat, msg.username, trophies)
+  await sendTrophyUnlocks(router.chat, trophyTexts, msg.username, trophies)
 
 proc cmdSlots*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !slots [symbol] - slot machine with a win probability
@@ -261,7 +222,7 @@ proc cmdSlots*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} 
   let event = if result.isWin: "win" else: "loss"
   let trophies = router.trophyTracker.recordEvent(msg.username, "slots", event)
   await safeSend(router.chat, msg.username & ", " & formatSlotResult(result, betOn))
-  await sendTrophyNotifs(router.chat, msg.username, trophies)
+  await sendTrophyUnlocks(router.chat, trophyTexts, msg.username, trophies)
 
 # --- Moneta ------------------------------------------------------------------------
 
@@ -279,14 +240,14 @@ proc cmdFlip*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
       msg.username, "flip", if won: "win" else: "loss"))
     let verdict =
       if won:
-        mtext("flip_win", "You bet {bet} — WIN! 🎉").replace("{bet}", bet)
+        msgText(msgTexts, "flip_win", "You bet {bet} — WIN! 🎉").replace("{bet}", bet)
       else:
-        mtext("flip_lose", "You bet {bet} — lose.").replace("{bet}", bet)
+        msgText(msgTexts, "flip_lose", "You bet {bet} — lose.").replace("{bet}", bet)
     text = outcome & "! " & verdict
   else:
     text = outcome & "!"
   await safeSend(router.chat, msg.username & ", " & text)
-  await sendTrophyNotifs(router.chat, msg.username, trophies)
+  await sendTrophyUnlocks(router.chat, trophyTexts, msg.username, trophies)
 
 # --- Bet (economy) -----------------------------------------------------------------
 
@@ -301,32 +262,32 @@ proc cmdBet*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !bet <amount> <flip|slots> - bet coins on a game of chance
   if econ.isNil:
     await safeSend(router.chat,
-      mtext("economy_unavailable", "{user}, the economy is not available")
+      msgText(msgTexts, "economy_unavailable", "{user}, the economy is not available")
         .replace("{user}", msg.username))
     return
   let parts = msg.args.strip().splitWhitespace()
   if parts.len != 2:
     await safeSend(router.chat,
-      mtext("bet_usage", "{user}, usage: !bet <amount> <flip|slots>")
+      msgText(msgTexts, "bet_usage", "{user}, usage: !bet <amount> <flip|slots>")
         .replace("{user}", msg.username))
     return
   var amount = 0
   if parseInt(parts[0], amount) == 0 or amount < econ.minBet:
     await safeSend(router.chat,
-      mtext("invalid_amount", "{user}, enter a valid amount (min {min})")
+      msgText(msgTexts, "invalid_amount", "{user}, enter a valid amount (min {min})")
         .replace("{user}", msg.username)
         .replace("{min}", $econ.minBet))
     return
   let game = parts[1].toLowerAscii()
   if game != "flip" and game != "slots":
     await safeSend(router.chat,
-      mtext("invalid_game", "{user}, bet on flip or slots")
+      msgText(msgTexts, "invalid_game", "{user}, bet on flip or slots")
         .replace("{user}", msg.username))
     return
   if not econ.canAfford(msg.username, amount):
     let bal = econ.getBalance(msg.username)
     await safeSend(router.chat,
-      mtext("insufficient_funds", "{user}, you only have {balance} 🪙")
+      msgText(msgTexts, "insufficient_funds", "{user}, you only have {balance} 🪙")
         .replace("{user}", msg.username)
         .replace("{balance}", $bal))
     return
@@ -340,10 +301,10 @@ proc cmdBet*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
     if won: payout = amount * 2
     let verdict =
       if won:
-        mtext("bet_win", "You win {amount} 🪙! 🎉")
+        msgText(msgTexts, "bet_win", "You win {amount} 🪙! 🎉")
           .replace("{amount}", $amount)
       else:
-        mtext("bet_lose", "You lose {amount} 🪙.")
+        msgText(msgTexts, "bet_lose", "You lose {amount} 🪙.")
           .replace("{amount}", $amount)
     gameText = outcome & "! " & verdict
   else:
@@ -354,10 +315,10 @@ proc cmdBet*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
       payout = amount * slotMultiplier(result.symbols)
     let verdict =
       if result.isWin:
-        mtext("bet_win", "You win {amount} 🪙! 🎉")
+        msgText(msgTexts, "bet_win", "You win {amount} 🪙! 🎉")
           .replace("{amount}", $payout)
       else:
-        mtext("bet_lose", "You lose {amount} 🪙.")
+        msgText(msgTexts, "bet_lose", "You lose {amount} 🪙.")
           .replace("{amount}", $amount)
     gameText = formatSlotResult(result, "") & " " & verdict
 
@@ -372,8 +333,7 @@ proc cmdBet*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
     let bw = trophyText(trophyTexts, "big_winner", "Big Winner",
       "🏆 {user} unlocked the trophy \"{name}\"!")
     let isNew = router.trophyTracker.awardTrophy(msg.username,
-      Trophy(name: bw.name, command: "economy",
-             unlockedAt: toIsoString(now().toTime())))
+      newTrophy(bw.name, "economy"))
     if isNew:
       let msg = bw.message.replace("{user}", msg.username)
         .replace("{name}", bw.name)
@@ -387,7 +347,7 @@ proc register*(ctx: PluginContext) =
     return
   specs = loadCommandSpecs(ctx.dir / "commands.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
-  msgTexts = loadMsgs(ctx.dir / "messages.json")
+  msgTexts = loadMsgTexts(ctx.dir / "messages.json")
   econ = cast[EconomyService](ctx.platform.services.getOrDefault("economy", nil))
   var handlers: Table[string, CommandHandler]
   handlers["8ball"] = cmd8ball

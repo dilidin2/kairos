@@ -1,7 +1,8 @@
-import std/[strutils, os, json, random, asyncdispatch]
+import std/[strutils, os, json, asyncdispatch]
 
 import kairosbot/plugin
 import kairosbot/data/persistence
+import kairosbot/utils/common
 
 type
   TimerState = object
@@ -13,7 +14,7 @@ type
 proc pickMessage(t: var TimerState): string =
   ## Random message (shuffle on) or next in order (shuffle off)
   if t.shuffle or t.messages.len == 1:
-    result = t.messages[rand(t.messages.len - 1)]
+    result = randElem(t.messages)
   else:
     result = t.messages[t.idx]
     t.idx = (t.idx + 1) mod t.messages.len

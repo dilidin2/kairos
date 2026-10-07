@@ -1,8 +1,8 @@
-import std/[strutils, times, asyncdispatch, options, tables, os, sequtils, json]
+import std/[strutils, times, asyncdispatch, options, tables, os, sequtils]
 
 import kairosbot/plugin
 import kairosbot/core/command_router
-import kairosbot/data/persistence
+import kairosbot/data/messages
 import kairosbot/commands/registry
 import kairosbot/twitch/chat
 import kairosbot/utils/chat_helpers
@@ -13,29 +13,8 @@ var
   ## registration time is the bot start
   specs*: Table[string, CommandSpec]
   ## Metadata read from commands.json in register()
-  msgTexts*: Table[string, string]
+  msgTexts*: MsgTexts
   ## Translatable user-facing chat texts from messages.json
-
-# --- Texts --------------------------------------------------------------------
-
-proc loadMsgs(path: string): Table[string, string] =
-  ## Loads messages.json: flat key -> template pairs
-  result = initTable[string, string]()
-  if not fileExists(path):
-    return
-  let node = loadJson(path)
-  if node.kind != JObject:
-    return
-  for key, value in node.pairs:
-    if value.kind == JString:
-      result[key] = value.getStr
-
-proc mtext(key, fallback: string): string =
-  ## A user-facing message template (messages.json) with English fallback
-  if msgTexts.hasKey(key):
-    result = msgTexts[key]
-  else:
-    result = fallback
 
 proc formatUptime*(startTime: Time): string =
   ## Formats the uptime (days/hours/minutes/seconds)
@@ -69,10 +48,10 @@ proc formatCommandHelp*(cmd: Command): string =
   ## Formats the help for a single command (helpText + cooldown + attempts)
   result = cmd.name & ": " & cmd.helpText
   if cmd.cooldown > 0.0:
-    result &= mtext("help_cooldown", " | cooldown: {s}s")
+    result &= msgText(msgTexts, "help_cooldown", " | cooldown: {s}s")
       .replace("{s}", $int(cmd.cooldown))
   if cmd.maxAttemptsPerDay > 0:
-    result &= mtext("help_attempts", " | max {n} attempts/day")
+    result &= msgText(msgTexts, "help_attempts", " | max {n} attempts/day")
       .replace("{n}", $cmd.maxAttemptsPerDay)
 
 proc cmdCommands*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
@@ -81,7 +60,7 @@ proc cmdCommands*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async
   ## delay between them), so the chat is not flooded with one line per
   ## message nor does any message hit the Twitch length limit.
   await safeSend(router.chat,
-    mtext("commands_header", "{user}, here are all the commands:")
+    msgText(msgTexts, "commands_header", "{user}, here are all the commands:")
       .replace("{user}", msg.username) & formatCommandsText(router))
 
 proc cmdHelp*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
@@ -89,7 +68,7 @@ proc cmdHelp*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   let args = msg.args.strip()
   if args.len == 0:
     await safeSend(router.chat,
-      mtext("help_usage", "{user}, usage: {prefix}help <command>")
+      msgText(msgTexts, "help_usage", "{user}, usage: {prefix}help <command>")
         .replace("{user}", msg.username)
         .replace("{prefix}", router.prefix))
     return
@@ -97,7 +76,7 @@ proc cmdHelp*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   let opt = router.registry.get(name)
   if opt.isNone:
     await safeSend(router.chat,
-      mtext("unknown_command", "{user}, unknown command: {prefix}{name}")
+      msgText(msgTexts, "unknown_command", "{user}, unknown command: {prefix}{name}")
         .replace("{user}", msg.username)
         .replace("{prefix}", router.prefix)
         .replace("{name}", name))
@@ -107,20 +86,20 @@ proc cmdHelp*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
 proc cmdUptime*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !uptime - shows how long the bot has been online
   await safeSend(router.chat,
-    mtext("uptime", "{user}, I've been online for {time}")
+    msgText(msgTexts, "uptime", "{user}, I've been online for {time}")
       .replace("{user}", msg.username)
       .replace("{time}", formatUptime(startTime)))
 
 proc cmdPing*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !ping - simple reply
   await safeSend(router.chat,
-    mtext("ping", "{user}, pong 🏓").replace("{user}", msg.username))
+    msgText(msgTexts, "ping", "{user}, pong 🏓").replace("{user}", msg.username))
 
 proc register*(ctx: PluginContext) =
   if not ctx.isEnabled():
     echo "[PLUGIN] info: disabled in config.json"
     return
-  msgTexts = loadMsgs(ctx.dir / "messages.json")
+  msgTexts = loadMsgTexts(ctx.dir / "messages.json")
   specs = loadCommandSpecs(ctx.dir / "commands.json")
   var handlers: Table[string, CommandHandler]
   handlers["commands"] = cmdCommands

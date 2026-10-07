@@ -1,13 +1,15 @@
-import std/[strutils, tables, json, os, math, asyncdispatch, options, times, random, sequtils, algorithm]
+import std/[strutils, tables, json, os, math, asyncdispatch, options, random, sequtils, algorithm]
 
 import kairosbot/plugin
 import kairosbot/core/command_router
 import kairosbot/core/trophy_tracker
 import kairosbot/core/economy
+import kairosbot/data/messages
 import kairosbot/data/persistence
 import kairosbot/commands/registry
 import kairosbot/twitch/chat
 import kairosbot/utils/chat_helpers
+import kairosbot/utils/common
 import ./stock_market
 
 var
@@ -21,31 +23,10 @@ var
   ## portfolio value threshold for the "Stock Millionaire" trophy
   trophyTexts*: Table[string, TrophyText]
   ## Translatable one-off trophy texts from trophies.json
-  msgTexts*: Table[string, string]
+  msgTexts*: MsgTexts
   ## Translatable user-facing chat texts from messages.json
   newsPhrases*: seq[string]
   ## Pre-crash rumour templates from news.json ({item} placeholder)
-
-# --- Texts --------------------------------------------------------------------
-
-proc loadMsgs(path: string): Table[string, string] =
-  ## Loads messages.json: flat key -> template pairs
-  result = initTable[string, string]()
-  if not fileExists(path):
-    return
-  let node = loadJson(path)
-  if node.kind != JObject:
-    return
-  for key, value in node.pairs:
-    if value.kind == JString:
-      result[key] = value.getStr
-
-proc mtext(key, fallback: string): string =
-  ## A user-facing message template (messages.json) with English fallback
-  if msgTexts.hasKey(key):
-    result = msgTexts[key]
-  else:
-    result = fallback
 
 proc loadNews(ctx: PluginContext): seq[string] =
   ## Loads news.json: an array of rumour templates ({item} placeholder)
@@ -69,8 +50,7 @@ proc checkPortfolioTrophies(router: CommandRouter, user: string) {.async.} =
     "🏆 {user} is the first to {amount} 🪙 in stocks!")
   let mName = m.name.replace("{amount}", $int(millionaire))
   if market.portfolioValue(u) >= millionaire:
-    var t = Trophy(name: mName, command: "stocks",
-                   unlockedAt: toIsoString(now().toTime()))
+    var t = newTrophy(mName, "stocks")
     if router.trophyTracker.awardTrophy(u, t):
       let msg = m.message.replace("{user}", u)
         .replace("{amount}", $int(millionaire))
@@ -78,8 +58,7 @@ proc checkPortfolioTrophies(router: CommandRouter, user: string) {.async.} =
   let pk = trophyText(trophyTexts, "pnl_king", "PnL King",
     "👑 {user} is the {name}!")
   if market.pnl(u) >= pnlKing:
-    var t = Trophy(name: pk.name, command: "stocks",
-                   unlockedAt: toIsoString(now().toTime()))
+    var t = newTrophy(pk.name, "stocks")
     if router.trophyTracker.awardTrophy(u, t):
       let msg = pk.message.replace("{user}", u).replace("{name}", pk.name)
       await safeSend(router.chat, msg)
@@ -93,8 +72,7 @@ proc awardCrashSurvivors(router: CommandRouter, item: string) {.async.} =
   # from the table), which would invalidate a live iteration
   for user in toSeq(market.holdings.keys):
     if market.holdings[user].hasKey(key) and market.holdings[user][key] > 0:
-      var t = Trophy(name: cs.name, command: "stocks",
-                     unlockedAt: toIsoString(now().toTime()))
+      var t = newTrophy(cs.name, "stocks")
       if router.trophyTracker.awardTrophy(user, t):
         let msg = cs.message.replace("{user}", user).replace("{item}", item)
         await safeSend(router.chat, msg)
@@ -107,11 +85,11 @@ proc doTick() {.async.} =
   for e in market.tick():
     case e.kind
     of meNews:
-      let phrase = newsPhrases[rand(newsPhrases.high)]
+      let phrase = randElem(newsPhrases)
       await safeSend(router.chat, phrase.replace("{item}", e.item))
     of meCrash:
       # magnitude is the actual signed change (negative for a crash)
-      let txt = mtext("crash", "📉 CRASH: {item} -{pct}%")
+      let txt = msgText(msgTexts, "crash", "📉 CRASH: {item} -{pct}%")
         .replace("{item}", e.item)
         .replace("{pct}", $int(round(abs(e.magnitude) * 100.0)))
       await safeSend(router.chat, txt)
@@ -119,7 +97,7 @@ proc doTick() {.async.} =
       # news), so the survivors are always awarded
       await awardCrashSurvivors(router, e.item)
     of meSurge:
-      let txt = mtext("surge", "📈 SURGE: {item} +{pct}%")
+      let txt = msgText(msgTexts, "surge", "📈 SURGE: {item} +{pct}%")
         .replace("{item}", e.item)
         .replace("{pct}", $int(round(abs(e.magnitude) * 100.0)))
       await safeSend(router.chat, txt)
@@ -212,14 +190,14 @@ proc doBuy(router: CommandRouter, user: string, item: string, qty: int) {.async.
   let fee = market.brokerFeeFor(float(cash))
   let total = cash + fee
   if not econ.debit(user, total):
-    let txt = mtext("insufficient_funds", "{user}, you only have {balance} 🪙")
+    let txt = msgText(msgTexts, "insufficient_funds", "{user}, you only have {balance} 🪙")
       .replace("{user}", user)
       .replace("{balance}", $econ.getBalance(user))
     await safeSend(router.chat, txt)
     return
   market.addHolding(user, item, qty, float(cash))
   market.creditBroker(fee)
-  let txt = mtext("bought",
+  let txt = msgText(msgTexts, "bought",
     "{user} bought {qty} {item} for {total} 🪙 ({cash} + {fee} fee)")
     .replace("{user}", user).replace("{qty}", $qty)
     .replace("{item}", s.name).replace("{total}", $total)
@@ -236,13 +214,13 @@ proc doSell(router: CommandRouter, user: string, item: string, qty: int) {.async
   let fee = market.brokerFeeFor(float(proceeds))
   let net = proceeds - fee
   if not market.removeHolding(user, item, qty, float(proceeds)):
-    let txt = mtext("not_owner", "{user}, you don't own {item}")
+    let txt = msgText(msgTexts, "not_owner", "{user}, you don't own {item}")
       .replace("{user}", user).replace("{item}", s.name)
     await safeSend(router.chat, txt)
     return
   market.creditBroker(fee)
   econ.credit(user, net)
-  let txt = mtext("sold",
+  let txt = msgText(msgTexts, "sold",
     "{user} sold {qty} {item} for {net} 🪙 ({proceeds} - {fee} fee)")
     .replace("{user}", user).replace("{qty}", $qty)
     .replace("{item}", s.name).replace("{net}", $net)
@@ -255,9 +233,9 @@ proc doSell(router: CommandRouter, user: string, item: string, qty: int) {.async
 proc cmdStock*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !stock - stock list with price, trend and remaining supply
   if market.stocks.len == 0:
-    await safeSend(router.chat, mtext("no_stocks", "No stocks available."))
+    await safeSend(router.chat, msgText(msgTexts, "no_stocks", "No stocks available."))
     return
-  let leftTpl = mtext("left_suffix", " ({left} left)")
+  let leftTpl = msgText(msgTexts, "left_suffix", " ({left} left)")
   var lines: seq[string] = @[]
   for s in toSeq(market.stocks.values).sortedByIt(it.name.toLowerAscii()):
     let trend =
@@ -266,14 +244,14 @@ proc cmdStock*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} 
       else: "➖"
     let left = leftTpl.replace("{left}", $market.remainingSupply(s.name))
     lines.add(s.name & ": " & $s.price & " " & trend & left)
-  let header = mtext("market_header", "📊 Stock market:")
+  let header = msgText(msgTexts, "market_header", "📊 Stock market:")
   await safeSend(router.chat, header & "\n" & lines.join("\n"))
 
 proc cmdBuy*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !buy <item> <qty> - buys stocks
   let parts = msg.args.splitWhitespace()
   if parts.len != 2:
-    let txt = mtext("buy_usage", "{user}, usage: !buy <item> <quantity>")
+    let txt = msgText(msgTexts, "buy_usage", "{user}, usage: !buy <item> <quantity>")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
@@ -281,27 +259,27 @@ proc cmdBuy*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   try: qty = parseInt(parts[1]) except ValueError: qty = 0
   # guard against overflow / garbage: e.g. !buy doge abc or a huge number
   if qty < 1 or qty > 1_000_000:
-    let txt = mtext("invalid_quantity", "{user}, enter a valid quantity")
+    let txt = msgText(msgTexts, "invalid_quantity", "{user}, enter a valid quantity")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   # qty already extracted
   let stockOpt = market.stock(parts[0])
   if stockOpt.isNone:
-    let txt = mtext("unknown_stock", "{user}, unknown stock: {item}")
+    let txt = msgText(msgTexts, "unknown_stock", "{user}, unknown stock: {item}")
       .replace("{user}", msg.username).replace("{item}", parts[0])
     await safeSend(router.chat, txt)
     return
   # limited supply: nobody can buy more than what is left
   let rem = market.remainingSupply(stockOpt.get().name)
   if qty > rem:
-    let txt = mtext("only_left", "{user}, only {left} {item} left to buy")
+    let txt = msgText(msgTexts, "only_left", "{user}, only {left} {item} left to buy")
       .replace("{user}", msg.username)
       .replace("{left}", $rem).replace("{item}", stockOpt.get().name)
     await safeSend(router.chat, txt)
     return
   if econ.isNil:
-    let txt = mtext("economy_unavailable", "{user}, the economy is not available")
+    let txt = msgText(msgTexts, "economy_unavailable", "{user}, the economy is not available")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
@@ -311,7 +289,7 @@ proc cmdSell*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !sell <item> <qty> - sells stocks
   let parts = msg.args.splitWhitespace()
   if parts.len != 2:
-    let txt = mtext("sell_usage", "{user}, usage: !sell <item> <quantity>")
+    let txt = msgText(msgTexts, "sell_usage", "{user}, usage: !sell <item> <quantity>")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
@@ -319,19 +297,19 @@ proc cmdSell*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   try: qty = parseInt(parts[1]) except ValueError: qty = 0
   # guard against overflow / garbage: e.g. !sell doge abc or a huge number
   if qty < 1 or qty > 1_000_000:
-    let txt = mtext("invalid_quantity", "{user}, enter a valid quantity")
+    let txt = msgText(msgTexts, "invalid_quantity", "{user}, enter a valid quantity")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   # qty already extracted
   let stockOpt = market.stock(parts[0])
   if stockOpt.isNone:
-    let txt = mtext("unknown_stock", "{user}, unknown stock: {item}")
+    let txt = msgText(msgTexts, "unknown_stock", "{user}, unknown stock: {item}")
       .replace("{user}", msg.username).replace("{item}", parts[0])
     await safeSend(router.chat, txt)
     return
   if econ.isNil:
-    let txt = mtext("economy_unavailable", "{user}, the economy is not available")
+    let txt = msgText(msgTexts, "economy_unavailable", "{user}, the economy is not available")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
@@ -341,25 +319,25 @@ proc cmdBuyAll*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.}
   ## !buyall <item> - buys as many shares as the balance allows
   let parts = msg.args.splitWhitespace()
   if parts.len != 1:
-    let txt = mtext("buyall_usage", "{user}, usage: !buyall <item>")
+    let txt = msgText(msgTexts, "buyall_usage", "{user}, usage: !buyall <item>")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   let stockOpt = market.stock(parts[0])
   if stockOpt.isNone:
-    let txt = mtext("unknown_stock", "{user}, unknown stock: {item}")
+    let txt = msgText(msgTexts, "unknown_stock", "{user}, unknown stock: {item}")
       .replace("{user}", msg.username).replace("{item}", parts[0])
     await safeSend(router.chat, txt)
     return
   let s = stockOpt.get()
   if econ.isNil:
-    let txt = mtext("economy_unavailable", "{user}, the economy is not available")
+    let txt = msgText(msgTexts, "economy_unavailable", "{user}, the economy is not available")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   let rem = market.remainingSupply(s.name)
   if rem < 1:
-    let txt = mtext("no_left", "{user}, no {item} left to buy")
+    let txt = msgText(msgTexts, "no_left", "{user}, no {item} left to buy")
       .replace("{user}", msg.username).replace("{item}", s.name)
     await safeSend(router.chat, txt)
     return
@@ -373,7 +351,7 @@ proc cmdBuyAll*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.}
       break
     dec qty
   if qty < 1:
-    let txt = mtext("cannot_afford",
+    let txt = msgText(msgTexts, "cannot_afford",
       "{user}, you can't afford {item} (balance {balance} 🪙)")
       .replace("{user}", msg.username)
       .replace("{item}", s.name).replace("{balance}", $balance)
@@ -385,24 +363,24 @@ proc cmdSellAll*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.
   ## !sellall <item> - sells all shares of an item
   let parts = msg.args.splitWhitespace()
   if parts.len != 1:
-    let txt = mtext("sellall_usage", "{user}, usage: !sellall <item>")
+    let txt = msgText(msgTexts, "sellall_usage", "{user}, usage: !sellall <item>")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   let stockOpt = market.stock(parts[0])
   if stockOpt.isNone:
-    let txt = mtext("unknown_stock", "{user}, unknown stock: {item}")
+    let txt = msgText(msgTexts, "unknown_stock", "{user}, unknown stock: {item}")
       .replace("{user}", msg.username).replace("{item}", parts[0])
     await safeSend(router.chat, txt)
     return
   let qty = market.holdingQty(msg.username, stockOpt.get().name)
   if qty < 1:
-    let txt = mtext("not_owner", "{user}, you don't own {item}")
+    let txt = msgText(msgTexts, "not_owner", "{user}, you don't own {item}")
       .replace("{user}", msg.username).replace("{item}", stockOpt.get().name)
     await safeSend(router.chat, txt)
     return
   if econ.isNil:
-    let txt = mtext("economy_unavailable", "{user}, the economy is not available")
+    let txt = msgText(msgTexts, "economy_unavailable", "{user}, the economy is not available")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
@@ -411,7 +389,7 @@ proc cmdSellAll*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.
 proc cmdLoan*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !loan [<amount>] - borrows from the broker (funded by trade fees)
   if econ.isNil:
-    let txt = mtext("economy_unavailable", "{user}, the economy is not available")
+    let txt = msgText(msgTexts, "economy_unavailable", "{user}, the economy is not available")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
@@ -424,7 +402,7 @@ proc cmdLoan*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
                                market.brokerPool) - market.debt(msg.username))
   let parts = msg.args.splitWhitespace()
   if parts.len == 0:
-    let txt = mtext("loan_status",
+    let txt = msgText(msgTexts, "loan_status",
       "{user}, you owe {debt} 🪙. You can borrow up to {available} 🪙")
       .replace("{user}", msg.username)
       .replace("{debt}", $market.debt(msg.username))
@@ -434,29 +412,29 @@ proc cmdLoan*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   var amount = 0
   try: amount = parseInt(parts[0]) except ValueError: amount = 0
   if amount < 1:
-    let txt = mtext("invalid_amount", "{user}, enter a valid amount")
+    let txt = msgText(msgTexts, "invalid_amount", "{user}, enter a valid amount")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   if market.brokerPool <= 0.0:
-    let txt = mtext("broker_empty",
+    let txt = msgText(msgTexts, "broker_empty",
       "{user}, the broker has no money (fees fund the loans)")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   if float(amount) > available:
-    let txt = mtext("loan_max", "{user}, you can borrow up to {available} 🪙")
+    let txt = msgText(msgTexts, "loan_max", "{user}, you can borrow up to {available} 🪙")
       .replace("{user}", msg.username)
       .replace("{available}", $int(available))
     await safeSend(router.chat, txt)
     return
   if not market.takeLoan(msg.username, float(amount)):
-    let txt = mtext("broker_cannot_cover", "{user}, the broker can't cover that")
+    let txt = msgText(msgTexts, "broker_cannot_cover", "{user}, the broker can't cover that")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   econ.credit(msg.username, amount)
-  let txt = mtext("borrowed",
+  let txt = msgText(msgTexts, "borrowed",
     "{user} borrowed {amount} 🪙 from the broker (interest {interest}% per tick)")
     .replace("{user}", msg.username).replace("{amount}", $amount)
     .replace("{interest}", $int(round(market.loanInterest * 100.0)))
@@ -465,12 +443,12 @@ proc cmdLoan*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
 proc cmdRepay*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !repay [<amount>] - repays the broker (no amount = as much as possible)
   if market.debt(msg.username) <= 0.0:
-    let txt = mtext("no_debt", "{user}, you have no debt")
+    let txt = msgText(msgTexts, "no_debt", "{user}, you have no debt")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   if econ.isNil:
-    let txt = mtext("economy_unavailable", "{user}, the economy is not available")
+    let txt = msgText(msgTexts, "economy_unavailable", "{user}, the economy is not available")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
@@ -481,7 +459,7 @@ proc cmdRepay*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} 
     var a = 0
     try: a = parseInt(parts[0]) except ValueError: a = 0
     if a < 1:
-      let txt = mtext("invalid_amount", "{user}, enter a valid amount")
+      let txt = msgText(msgTexts, "invalid_amount", "{user}, enter a valid amount")
         .replace("{user}", msg.username)
       await safeSend(router.chat, txt)
       return
@@ -490,14 +468,14 @@ proc cmdRepay*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} 
   amount = min(amount, float(balance))
   let (real, pay) = market.repayLoan(msg.username, amount)
   if real <= 0.0:
-    let txt = mtext("cannot_repay", "{user}, you can't repay: no balance")
+    let txt = msgText(msgTexts, "cannot_repay", "{user}, you can't repay: no balance")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
   # pay <= balance: repayLoan returns the ceiling of `real`, and
   # real <= amount <= balance with balance a whole number
   discard econ.debit(msg.username, pay)
-  let txt = mtext("repaid",
+  let txt = msgText(msgTexts, "repaid",
     "{user} repaid {amount} 🪙 to the broker (left: {debt} 🪙)")
     .replace("{user}", msg.username).replace("{amount}", $pay)
     .replace("{debt}", $market.debt(msg.username))
@@ -507,12 +485,12 @@ proc cmdPortfolio*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.asyn
   ## !portfolio - holdings + value + PnL + debt
   let holdings = market.holdingsList(msg.username)
   if holdings.len == 0:
-    let txt = mtext("no_portfolio", "{user}, you don't own any stocks")
+    let txt = msgText(msgTexts, "no_portfolio", "{user}, you don't own any stocks")
       .replace("{user}", msg.username)
     await safeSend(router.chat, txt)
     return
-  let lineTpl = mtext("holding_line", "{qty} {item} ({value} 🪙)")
-  let delistTpl = mtext("delisted_line", "{qty} {item} (delisted)")
+  let lineTpl = msgText(msgTexts, "holding_line", "{qty} {item} ({value} 🪙)")
+  let delistTpl = msgText(msgTexts, "delisted_line", "{qty} {item} (delisted)")
   var lines: seq[string] = @[]
   for (item, qty) in holdings.sortedByIt(it[0].toLowerAscii()):
     # the stock can have disappeared from the market (removed from
@@ -526,14 +504,14 @@ proc cmdPortfolio*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.asyn
   let value = market.portfolioValue(msg.username)
   let profit = market.pnl(msg.username)
   let sign = if profit >= 0: "+" else: ""
-  let total = mtext("portfolio_total", "Total: {value} 🪙 (PnL {pnl})")
+  let total = msgText(msgTexts, "portfolio_total", "Total: {value} 🪙 (PnL {pnl})")
     .replace("{value}", $value).replace("{pnl}", sign & $profit)
-  let header = mtext("portfolio_header", "💼 {user}'s portfolio:")
+  let header = msgText(msgTexts, "portfolio_header", "💼 {user}'s portfolio:")
     .replace("{user}", msg.username)
   var debtLine = ""
   let debt = market.debt(msg.username)
   if debt > 0.0:
-    debtLine = "\n" & mtext("debt_line", "Debt: {debt} 🪙")
+    debtLine = "\n" & msgText(msgTexts, "debt_line", "Debt: {debt} 🪙")
       .replace("{debt}", $debt)
   await safeSend(router.chat, header & "\n" & lines.join("\n") & "\n" &
     total & debtLine)
@@ -549,7 +527,7 @@ proc register*(ctx: PluginContext) =
   market = newStockMarket(dataDir / "stocks.json")
   econ = cast[EconomyService](ctx.platform.services.getOrDefault("economy", nil))
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
-  msgTexts = loadMsgs(ctx.dir / "messages.json")
+  msgTexts = loadMsgTexts(ctx.dir / "messages.json")
   newsPhrases = loadNews(ctx)
   loadConfig(ctx)
   # seed the RNG: without this the market replays the same random
