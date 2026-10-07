@@ -6,7 +6,7 @@
   // instead of renaming the key.
 
   "!stock": {
-    "help": "list the virtual stocks with prices and trends",
+    "help": "list the virtual stocks with prices, trends and remaining supply",
     "aliases": [],
     // Cooldown in seconds (0 = none)
     "cooldown": 5
@@ -21,8 +21,28 @@
     "aliases": [],
     "cooldown": 5
   },
+  "!buyall": {
+    "help": "buy as many shares as you can afford (!buyall <item>)",
+    "aliases": [],
+    "cooldown": 5
+  },
+  "!sellall": {
+    "help": "sell all your shares of an item (!sellall <item>)",
+    "aliases": [],
+    "cooldown": 5
+  },
+  "!loan": {
+    "help": "borrow from the broker, funded by trade fees (!loan [amount])",
+    "aliases": ["loan"],
+    "cooldown": 5
+  },
+  "!repay": {
+    "help": "repay your loan to the broker (!repay [amount])",
+    "aliases": ["repay"],
+    "cooldown": 5
+  },
   "!portfolio": {
-    "help": "show your holdings, total value and PnL",
+    "help": "show your holdings, total value, PnL and debts",
     "aliases": [],
     "cooldown": 5
   }

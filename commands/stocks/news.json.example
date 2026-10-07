@@ -1,0 +1,17 @@
+// Pre-crash rumours: a random phrase is announced ONE tick before the
+// crash of {item} actually lands (crashChance, stocks.json).
+// The whole file is an array of strings; {item} is replaced with the
+// stock name. If the file is missing or empty, a built-in fallback is
+// used (main.nim: loadNews).
+[
+  "📰 Rumour mill: the {item} board of directors was spotted fleeing in a batmobile...",
+  "📰 Breaking: analysts describe {item} as 'overpriced, like a seagull's lunch'.",
+  "📰 Whispers in the alley: someone is about to dump all their {item}.",
+  "📰 The {item} CEO was last seen crying into a bowl of ramen.",
+  "📰 Flash report: the {item} headquarters caught fire. Probably.",
+  "📰 A seagull was seen carrying {item} shares into the ocean.",
+  "📰 Rumour: the {item} mine has been replaced by a pile of potatoes.",
+  "📰 The {item} stock is under investigation by the Moon Securities Commission.",
+  "📰 Unconfirmed: all {item} ATMs are now dispensing rocks.",
+  "📰 The {item} company just announced a 'strategic pause'. Read the fine print."
+]
