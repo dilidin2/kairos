@@ -1,8 +1,9 @@
-import std/[strutils, tables, os, asyncdispatch, json]
+import std/[strutils, tables, os, asyncdispatch]
 
 import kairosbot/plugin
 import kairosbot/core/command_router
 import kairosbot/commands/registry
+import kairosbot/data/messages
 import kairosbot/data/persistence
 import kairosbot/twitch/chat
 import kairosbot/twitch/helix
@@ -18,29 +19,8 @@ var
   ## Ring buffer of the session's messages
   specs*: Table[string, CommandSpec]
   ## Metadata read from commands.json in register()
-  msgTexts*: Table[string, string]
+  msgTexts*: MsgTexts
   ## Translatable user-facing chat texts from messages.json
-
-# --- Texts --------------------------------------------------------------------
-
-proc loadMsgs(path: string): Table[string, string] =
-  ## Loads messages.json: flat key -> template pairs
-  result = initTable[string, string]()
-  if not fileExists(path):
-    return
-  let node = loadJson(path)
-  if node.kind != JObject:
-    return
-  for key, value in node.pairs:
-    if value.kind == JString:
-      result[key] = value.getStr
-
-proc mtext(key, fallback: string): string =
-  ## A user-facing message template (messages.json) with English fallback
-  if msgTexts.hasKey(key):
-    result = msgTexts[key]
-  else:
-    result = fallback
 
 proc onNewMessage(msg: ChatMessage) {.async.} =
   ## Fills the ring buffer (this live only)
@@ -56,23 +36,18 @@ proc cmdVanish*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.}
   # the bot must have the moderation scope
   if not hasModScope(p):
     await safeSend(router.chat,
-      mtext("need_mod", "{user}, I need to be a moderator to use !vanish")
+      msgText(msgTexts, "need_mod", "{user}, I need to be a moderator to use !vanish")
       .replace("{user}", msg.username))
     return
   # the broadcaster's messages cannot be deleted (API limitation)
   if msg.username.toLowerAscii() == p.channel.toLowerAscii():
     await safeSend(router.chat,
-      mtext("broadcaster", "{user}, I can't make the broadcaster vanish")
+      msgText(msgTexts, "broadcaster", "{user}, I can't make the broadcaster vanish")
       .replace("{user}", msg.username))
     return
   # dramatic effect (delay from the `dramatic_delay_ms` param)
-  var delayMs = 1000
   let spec = specs.getOrDefault("vanish", CommandSpec(name: "vanish"))
-  if spec.params.hasKey("dramatic_delay_ms") and
-      spec.params["dramatic_delay_ms"].kind == JInt:
-    let v = spec.params["dramatic_delay_ms"].getInt
-    if v >= 0:
-      delayMs = v
+  let delayMs = specIntParam(spec, "dramatic_delay_ms", 1000, 0)
   await sleepAsync(delayMs)
   let ids = log.messagesOf(msg.username)
   var gone = 0
@@ -89,7 +64,7 @@ proc cmdVanish*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.}
   # clears the user's log
   log.clearUser(msg.username)
   await safeSend(router.chat,
-    mtext("secret", "{user}, i see your secret 🕵️")
+    msgText(msgTexts, "secret", "{user}, i see your secret 🕵️")
     .replace("{user}", msg.username))
 
 # --- Registration ------------------------------------------------------------------------
@@ -101,7 +76,7 @@ proc register*(ctx: PluginContext) =
   pluginCtx = ctx
   # fills the ring buffer on every chat message
   ctx.onMessage(onNewMessage)
-  msgTexts = loadMsgs(ctx.dir / "messages.json")
+  msgTexts = loadMsgTexts(ctx.dir / "messages.json")
   specs = loadCommandSpecs(ctx.dir / "commands.json")
   var handlers: Table[string, CommandHandler]
   handlers["vanish"] = cmdVanish

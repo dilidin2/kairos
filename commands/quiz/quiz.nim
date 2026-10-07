@@ -1,6 +1,7 @@
-import std/[strutils, json, os, random]
+import std/[json, os]
 
 import kairosbot/data/persistence
+import kairosbot/utils/common
 
 ## State of the timed trivia quiz. Lives in the plugin: only this plugin uses it.
 
@@ -40,23 +41,6 @@ proc reset*(s: QuizState) =
   s.variants = @[]
   s.winner = ""
 
-proc norm*(s: string): string =
-  ## Normalizes an answer: lowercase, trim, multiple spaces collapsed
-  result = s.toLowerAscii().strip()
-  while "  " in result:
-    result = result.replace("  ", " ")
-
-proc isCorrect*(s: QuizState, resp: string): bool =
-  ## The (normalized) answer matches the correct answer or a variant
-  let n = norm(resp)
-  result = (n == norm(s.answer))
-  if result:
-    return
-  for v in s.variants:
-    if n == norm(v):
-      result = true
-      return
-
 # --- Loading questions -------------------------------------------------------------
 
 var
@@ -92,4 +76,4 @@ proc loadQuestions*(path: string) =
 proc pickQuestion*(): Question =
   ## Random question (empty default if none available)
   if questions.len > 0:
-    result = questions[rand(questions.len - 1)]
+    result = randElem(questions)

@@ -1,4 +1,4 @@
-import std/[strutils, tables, json, random, options, times, asyncdispatch, os, logging, sequtils]
+import std/[strutils, tables, json, options, times, asyncdispatch, os, logging, sequtils]
 
 import kairosbot/plugin
 import kairosbot/config/config
@@ -8,7 +8,9 @@ import kairosbot/core/llm
 import kairosbot/core/peerbus
 import kairosbot/core/trophy_tracker
 import kairosbot/twitch/chat
+import kairosbot/data/messages
 import kairosbot/data/persistence
+import kairosbot/utils/common
 
 import simpleQuests
 
@@ -96,29 +98,8 @@ type
 var
   trophyTexts: Table[string, TrophyText]
   ## Translatable one-off trophy texts from trophies.json
-  msgTexts*: Table[string, string]
+  msgTexts*: MsgTexts
   ## Translatable user-facing chat texts from messages.json
-
-# --- Texts --------------------------------------------------------------------
-
-proc loadMsgs(path: string): Table[string, string] =
-  ## Loads messages.json: flat key -> template pairs
-  result = initTable[string, string]()
-  if not fileExists(path):
-    return
-  let node = loadJson(path)
-  if node.kind != JObject:
-    return
-  for key, value in node.pairs:
-    if value.kind == JString:
-      result[key] = value.getStr
-
-proc mtext(key, fallback: string): string =
-  ## A user-facing message template (messages.json) with English fallback
-  if msgTexts.hasKey(key):
-    result = msgTexts[key]
-  else:
-    result = fallback
 
 # --- Helpers --------------------------------------------------------------------
 
@@ -293,34 +274,34 @@ proc finishQuestComplete(ctx: PluginContext, state: QuestState,
                         q: ActiveQuest, announcement: string) {.async.} =
   ## Trophies + announcement + peer event (does NOT remove from state.active)
   let tracker = ctx.platform.trophyTracker
-  let ts = toIsoString(now().toTime())
   var newTrophies: seq[(string, Trophy)] = @[]
   ## (user, trophy) pairs newly unlocked: notified in chat
   for user in q.users:
     state.data.completedCount[user] = state.data.completedCount.getOrDefault(user, 0) + 1
     let n = state.data.completedCount[user]
     if q.trophy.len > 0:
-      let t = Trophy(name: q.trophy, command: "quest", unlockedAt: ts)
+      let t = newTrophy(q.trophy, "quest")
       if tracker.awardTrophy(user, t):
         newTrophies.add((user, t))
     let qc = trophyText(trophyTexts, "quest_completer", "Quest Completer", "")
     let qm = trophyText(trophyTexts, "quest_master", "Quest Master", "")
     if n >= 1:
-      let t = Trophy(name: qc.name, command: "quest", unlockedAt: ts)
+      let t = newTrophy(qc.name, "quest")
       if tracker.awardTrophy(user, t):
         newTrophies.add((user, t))
     if n >= 5:
-      let t = Trophy(name: qm.name, command: "quest", unlockedAt: ts)
+      let t = newTrophy(qm.name, "quest")
       if tracker.awardTrophy(user, t):
         newTrophies.add((user, t))
   saveTyped(ctx.statePath, state.data)
 
   ctx.setBusy("quest completed")
   await ctx.send(announcement)
-  let tpl = trophyText(trophyTexts, "unlock", "",
-    "🏆 {user} unlocked the trophy \"{name}\"!")
+  var byUser: Table[string, seq[Trophy]]
   for (user, t) in newTrophies:
-    await ctx.send(tpl.message.replace("{user}", user).replace("{name}", t.name))
+    byUser[user].add(t)
+  for user, ts in byUser.pairs:
+    await sendTrophyUnlocks(ctx.platform.router.chat, trophyTexts, user, ts)
   ctx.clearBusy()
 
   ctx.broadcastEvent(PeerEvent(eventType: "quest_done",
@@ -336,7 +317,7 @@ proc finishQuestTimeout(ctx: PluginContext, state: QuestState,
     else:
       warn "[PLUGIN] quests: LLM defeat message is empty for ", q.instanceId
   else:
-    await ctx.send(mtext("time_up", "⏰ Time's up, @{user}! The quest is over.")
+    await ctx.send(msgText(msgTexts, "time_up", "⏰ Time's up, @{user}! The quest is over.")
                    .replace("{user}", q.users[0]))
   # separate, translatable failure message (only on expiry, never on a
   # precheck "no")
@@ -382,7 +363,7 @@ proc startSimpleQuest(ctx: PluginContext, state: QuestState) {.async.} =
   if state.simpleQuests.len == 0 or state.pool.len == 0:
     return
   let sq = pickSimpleQuest(state.simpleQuests, state.data.recentSimple)
-  let user = state.pool[rand(state.pool.high)]
+  let user = randElem(state.pool)
   state.instanceCounter += 1
   let nowT = now().toTime()
   state.active["q" & $state.instanceCounter] = ActiveQuest(
@@ -405,7 +386,7 @@ proc startSimpleQuest(ctx: PluginContext, state: QuestState) {.async.} =
   removeFromPool(state, user)
   markSimpleUsed(state, sq.id)
   ctx.setBusy("announcing quest")
-  await ctx.send(mtext("simple_announce", "📜 @{user}, your quest: {text}")
+  await ctx.send(msgText(msgTexts, "simple_announce", "📜 @{user}, your quest: {text}")
                  .replace("{user}", user)
                  .replace("{text}", sq.text))
   ctx.clearBusy()
@@ -661,7 +642,7 @@ proc register*(ctx: PluginContext) =
   let (inactiveMin, maxPick, checkTick, failedSingle, failedMulti) =
     loadQuestConfig(ctx.dir / "config.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
-  msgTexts = loadMsgs(ctx.dir / "messages.json")
+  msgTexts = loadMsgTexts(ctx.dir / "messages.json")
   let state = QuestState(
     cfg: cfg,
     channel: cfg.channel,
@@ -699,7 +680,7 @@ proc register*(ctx: PluginContext) =
     for instId in completed:
       let q = state.active[instId]
       removeActive(state, instId)
-      var ann = mtext("completed",
+      var ann = msgText(msgTexts, "completed",
                       "🏆 {user} completed the quest!")
                   .replace("{user}", q.users[0])
       if q.trophyResponse.len > 0:
@@ -719,7 +700,7 @@ proc register*(ctx: PluginContext) =
                                router: CommandRouter) {.async.} =
     let user = msg.username
     if user in state.pool:
-      await ctx.send(mtext("already_in_pool",
+      await ctx.send(msgText(msgTexts, "already_in_pool",
                            "{user}, you're already up for a quest!")
                      .replace("{user}", user))
       return
@@ -729,19 +710,19 @@ proc register*(ctx: PluginContext) =
         inActive = true
         break
     if inActive:
-      await ctx.send(mtext("has_active",
+      await ctx.send(msgText(msgTexts, "has_active",
                            "{user}, you already have an active quest!")
                      .replace("{user}", user))
       return
     state.pool.add(user)
-    await ctx.send(mtext("added_to_pool",
+    await ctx.send(msgText(msgTexts, "added_to_pool",
                          "{user}, you're up for a quest! 📜")
                    .replace("{user}", user))
   handlers["noadventure"] = proc(msg: ChatMessage, cmd: Command,
                                  router: CommandRouter) {.async.} =
     let user = msg.username
     removeFromPool(state, user)
-    await ctx.send(mtext("left_pool",
+    await ctx.send(msgText(msgTexts, "left_pool",
                          "{user}, you're out of the quest pool.")
                    .replace("{user}", user))
   handlers["quest"] = proc(msg: ChatMessage, cmd: Command,
@@ -753,20 +734,20 @@ proc register*(ctx: PluginContext) =
         found = some(instId)
         break
     if found.isNone:
-      await ctx.send(mtext("no_active",
+      await ctx.send(msgText(msgTexts, "no_active",
                            "{user}, you don't have an active quest.")
                      .replace("{user}", user))
       return
     let instId = found.get()
     let q = state.active[instId]
     if q.hintUsed:
-      await ctx.send(mtext("hint_used",
+      await ctx.send(msgText(msgTexts, "hint_used",
                            "{user}, you already used your hint for this quest.")
                      .replace("{user}", user))
       return
     state.active[instId].hintUsed = true
     if not q.isLlm:
-      await ctx.send(mtext("simple_objective",
+      await ctx.send(msgText(msgTexts, "simple_objective",
                            "Your quest: {objective}")
                      .replace("{objective}", q.objective))
       return

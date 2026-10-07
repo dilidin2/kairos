@@ -313,40 +313,29 @@ proc isEnabled*(ctx: PluginContext): bool =
     return node["enabled"].getBool
   result = true
 
-type
-  TrophyText* = object
-    ## Translatable text of a one-off trophy (from the plugin's
-    ## trophies.json). `name` is the trophy name, `message` is the chat
-    ## announcement ({user}, {name}, {amount}, {item} placeholders).
-    name*: string
-    message*: string
+proc specIntParam*(spec: CommandSpec, key: string, default: int,
+                  min: int = int.low): int =
+  ## An int param of commands.json (default if missing, not an int, or < min)
+  result = default
+  if spec.params.hasKey(key) and spec.params[key].kind == JInt:
+    let v = spec.params[key].getInt
+    if v >= min:
+      result = v
 
-proc loadTrophyTexts*(path: string): Table[string, TrophyText] =
-  ## Loads a plugin's trophies.json: JString values are message
-  ## templates, JObject values are {name, message} entries.
-  result = initTable[string, TrophyText]()
-  if not fileExists(path):
-    return
-  let node = loadJson(path)
-  if node.kind != JObject:
-    return
-  for key, value in node.pairs:
-    var t: TrophyText
-    case value.kind
-    of JString: t.message = value.getStr
-    of JObject:
-      if value.hasKey("name"): t.name = value["name"].getStr
-      if value.hasKey("message"): t.message = value["message"].getStr
-    else: continue
-    result[key] = t
+proc specFloatParam*(spec: CommandSpec, key: string, default: float): float =
+  ## A float param of commands.json (accepts int or float; default if missing)
+  result = default
+  if spec.params.hasKey(key):
+    let n = spec.params[key]
+    if n.kind == JInt or n.kind == JFloat:
+      result = n.getFloat
 
-proc trophyText*(texts: Table[string, TrophyText], key, defaultName,
-                defaultMessage: string): TrophyText =
-  ## Entry from trophies.json with built-in defaults as fallback
-  let t = texts.getOrDefault(key, TrophyText())
-  result = TrophyText(
-    name: if t.name.len > 0: t.name else: defaultName,
-    message: if t.message.len > 0: t.message else: defaultMessage)
+proc specStrSeqParam*(spec: CommandSpec, key: string): seq[string] =
+  ## A string list param of commands.json (empty if missing/malformed)
+  if spec.params.hasKey(key) and spec.params[key].kind == JArray:
+    for s in spec.params[key]:
+      if s.kind == JString and s.getStr.len > 0:
+        result.add(s.getStr)
 
 proc loadTrophyRules*(spec: CommandSpec): seq[TrophyRule] =
   ## Parses the `trophies` param of commands.json: a list of

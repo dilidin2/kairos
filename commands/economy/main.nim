@@ -5,6 +5,7 @@ import kairosbot/core/command_router
 import kairosbot/commands/registry
 import kairosbot/core/economy
 import kairosbot/core/trophy_tracker
+import kairosbot/data/messages
 import kairosbot/data/persistence
 import kairosbot/twitch/chat
 import kairosbot/utils/chat_helpers
@@ -19,33 +20,12 @@ var
   ## Metadata read from commands.json in register()
   trophyTexts*: Table[string, TrophyText]
   ## Translatable one-off trophy texts from trophies.json
-  msgTexts*: Table[string, string]
+  msgTexts*: MsgTexts
   ## Translatable user-facing chat texts from messages.json
   nextPayAt*: Table[string, int]
   ## username (lowercase) -> unix seconds of the user's next payroll
   payrollPath: string
   ## where nextPayAt is persisted (data/economy_payroll.json)
-
-# --- Texts --------------------------------------------------------------------
-
-proc loadMsgs(path: string): Table[string, string] =
-  ## Loads messages.json: flat key -> template pairs
-  result = initTable[string, string]()
-  if not fileExists(path):
-    return
-  let node = loadJson(path)
-  if node.kind != JObject:
-    return
-  for key, value in node.pairs:
-    if value.kind == JString:
-      result[key] = value.getStr
-
-proc mtext(key, fallback: string): string =
-  ## A user-facing message template (messages.json) with English fallback
-  if msgTexts.hasKey(key):
-    result = msgTexts[key]
-  else:
-    result = fallback
 
 # --- Parameters -----------------------------------------------------------------------
 
@@ -101,14 +81,6 @@ proc loadPayrollConfig*(path: string): PayrollConfig =
   if p.hasKey("firstPayTrophy") and p["firstPayTrophy"].kind == JString:
     result.firstPayTrophy = p["firstPayTrophy"].getStr
 
-proc sendTrophyNotifs(chat: TwitchChat, username: string,
-                      trophies: seq[Trophy]) {.async.} =
-  let tpl = trophyText(trophyTexts, "unlock", "",
-    "🏆 {user} unlocked the trophy \"{name}\"!")
-  for t in trophies:
-    let msg = tpl.message.replace("{user}", username).replace("{name}", t.name)
-    await safeSend(chat, msg)
-
 proc payrollTick*(chat: TwitchChat, tracker: TrophyTracker,
                  cfg: PayrollConfig, nowSec: int = int(epochTime())) {.async.} =
   ## One payroll tick with a PER-USER clock: each user is paid `interval`
@@ -137,7 +109,7 @@ proc payrollTick*(chat: TwitchChat, tracker: TrophyTracker,
   for user in paid:
     # public first-pay trophy announcement (only on the first payroll)
     let trophies = tracker.recordEvent(user, "payroll", "payday")
-    await sendTrophyNotifs(chat, user, trophies)
+    await sendTrophyUnlocks(chat, trophyTexts, user, trophies)
     let msg = cfg.message.replace("{user}", user).replace("{amount}", $cfg.amount)
     await safeSend(chat, msg)
   if dirty:
@@ -158,7 +130,7 @@ proc cmdBalance*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.
   ## !balance - current balance
   let bal = svc.getBalance(msg.username)
   await safeSend(router.chat,
-    mtext("balance", "{user}, your balance: {balance} 🪙")
+    msgText(msgTexts, "balance", "{user}, your balance: {balance} 🪙")
       .replace("{user}", msg.username)
       .replace("{balance}", $bal))
 
@@ -167,14 +139,14 @@ proc cmdPay*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   let parts = msg.args.strip().splitWhitespace()
   if parts.len != 2:
     await safeSend(router.chat,
-      mtext("pay_usage", "{user}, usage: !pay <user> <amount>")
+      msgText(msgTexts, "pay_usage", "{user}, usage: !pay <user> <amount>")
         .replace("{user}", msg.username))
     return
   let to = parts[0]
   var amount = 0
   if parseInt(parts[1], amount) == 0 or amount < 1:
     await safeSend(router.chat,
-      mtext("invalid_amount", "{user}, enter a valid amount")
+      msgText(msgTexts, "invalid_amount", "{user}, enter a valid amount")
         .replace("{user}", msg.username))
     return
   if svc.transfer(msg.username, to, amount):
@@ -184,33 +156,27 @@ proc cmdPay*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
       let ft = trophyText(trophyTexts, "first_to", "First to 1000",
         "🏆 {user} unlocked the trophy \"{name}\"!")
       let ftName = ft.name.replace("{amount}", $svc.firstTo)
-      discard router.trophyTracker.awardTrophy(to,
-        Trophy(name: ftName, command: "economy",
-               unlockedAt: toIsoString(now().toTime())))
+      discard router.trophyTracker.awardTrophy(to, newTrophy(ftName, "economy"))
       let msg = ft.message.replace("{user}", to).replace("{name}", ftName)
       await safeSend(router.chat, msg)
     await safeSend(router.chat,
-      mtext("paid", "{user} gave {amount} 🪙 to {to}!")
+      msgText(msgTexts, "paid", "{user} gave {amount} 🪙 to {to}!")
         .replace("{user}", msg.username)
         .replace("{amount}", $amount)
         .replace("{to}", to))
-    await sendTrophyNotifs(router.chat, msg.username, trophies)
+    await sendTrophyUnlocks(router.chat, trophyTexts, msg.username, trophies)
   else:
     await safeSend(router.chat,
-      mtext("cannot_afford", "{user}, you can't afford that — check your balance")
+      msgText(msgTexts, "cannot_afford", "{user}, you can't afford that — check your balance")
       .replace("{user}", msg.username))
 
 proc cmdRich*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
   ## !rich - top balances (N from the `rich_top` param, default 5)
   let spec = specs.getOrDefault("rich", CommandSpec(name: "rich"))
-  var n = 5
-  if spec.params.hasKey("rich_top") and spec.params["rich_top"].kind == JInt:
-    let v = spec.params["rich_top"].getInt
-    if v > 0:
-      n = v
+  let n = specIntParam(spec, "rich_top", 5, 1)
   let top = svc.topBalances(n)
   if top.len == 0:
-    await safeSend(router.chat, mtext("rich_empty",
+    await safeSend(router.chat, msgText(msgTexts, "rich_empty",
       "No balances yet — be the first to play!"))
     return
   let medals = @["🥇", "🥈", "🥉"]
@@ -219,7 +185,7 @@ proc cmdRich*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.async.} =
     let medal = if i < medals.len: medals[i] else: $(i + 1) & "."
     lines.add(medal & " " & user & ": " & $bal & " 🪙")
   await safeSend(router.chat,
-    mtext("rich_header", "Top balances:") & "\n" & lines.join("\n"))
+    msgText(msgTexts, "rich_header", "Top balances:") & "\n" & lines.join("\n"))
 
 # --- Registration ------------------------------------------------------------------------
 
@@ -234,7 +200,7 @@ proc register*(ctx: PluginContext) =
 
   specs = loadCommandSpecs(ctx.dir / "commands.json")
   trophyTexts = loadTrophyTexts(ctx.dir / "trophies.json")
-  msgTexts = loadMsgs(ctx.dir / "messages.json")
+  msgTexts = loadMsgTexts(ctx.dir / "messages.json")
   var handlers: Table[string, CommandHandler]
   handlers["balance"] = cmdBalance
   handlers["pay"] = cmdPay

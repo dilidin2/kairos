@@ -1,6 +1,7 @@
-import std/[tables, strutils, json, os, random]
+import std/[tables, strutils, json, os]
 
 import kairosbot/data/persistence
+import kairosbot/utils/common
 
 ## State of the quotes game, shared by !ding and !race (same state,
 ## different modes). Lives in the plugin: only this plugin uses it.
@@ -50,23 +51,6 @@ proc reset*(g: QuoteGame) =
   g.answer = ""
   g.variants = @[]
   g.responses = initTable[string, string]()
-
-proc norm*(s: string): string =
-  ## Normalizes an answer: lowercase, trim, multiple spaces collapsed
-  result = s.toLowerAscii().strip()
-  while "  " in result:
-    result = result.replace("  ", " ")
-
-proc isCorrect*(g: QuoteGame, resp: string): bool =
-  ## The (normalized) answer matches the correct answer or a variant
-  let n = norm(resp)
-  result = (n == norm(g.answer))
-  if result:
-    return
-  for v in g.variants:
-    if n == norm(v):
-      result = true
-      return
 
 proc complete*(g: QuoteGame, resp: string): string =
   ## Phrase completed with the user's answer
@@ -126,9 +110,9 @@ proc loadPhrases*(path: string) =
 proc pickDingPhrase*(): DingPhrase =
   ## Random ding phrase (empty default if none available)
   if dingPhrases.len > 0:
-    result = dingPhrases[rand(dingPhrases.len - 1)]
+    result = randElem(dingPhrases)
 
 proc pickRacePhrase*(): RacePhrase =
   ## Random race phrase (empty default if none available)
   if racePhrases.len > 0:
-    result = racePhrases[rand(racePhrases.len - 1)]
+    result = randElem(racePhrases)

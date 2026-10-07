@@ -5,6 +5,7 @@ import ../src/kairosbot/commands/registry
 import ../src/kairosbot/core/window_guard
 import ../src/kairosbot/core/trophy_tracker
 import ../src/kairosbot/plugin
+import ../src/kairosbot/utils/answers
 import ../commands/quiz/main as cmd_quiz
 import ../commands/quiz/quiz as qz
 
@@ -17,18 +18,17 @@ suite "QuizState":
     check q.answer.len > 0
     check q.category.len > 0
 
-  test "norm normalizes lowercase/trim/spaces":
-    check qz.norm("  Canberra  ") == "canberra"
-    check qz.norm("A  B") == "a b"
+  test "normAnswer normalizes lowercase/trim/spaces":
+    check answers.normAnswer("  Canberra  ") == "canberra"
+    check answers.normAnswer("A  B") == "a b"
 
-  test "isCorrect: exact match, variant and mismatch":
-    let s = qz.newQuizState()
-    s.answer = "Nile"
-    s.variants = @["Nilo"]
-    check s.isCorrect("Nile")
-    check s.isCorrect("  nile  ")
-    check s.isCorrect("Nilo")
-    check not s.isCorrect("Tiger")
+  test "answerMatches: exact match, variant and mismatch":
+    let answer = "Nile"
+    let variants = @["Nilo"]
+    check answers.answerMatches(answer, variants, "Nile")
+    check answers.answerMatches(answer, variants, "  nile  ")
+    check answers.answerMatches(answer, variants, "Nilo")
+    check not answers.answerMatches(answer, variants, "Tiger")
 
 suite "QuizPlugin":
 

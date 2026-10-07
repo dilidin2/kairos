@@ -1,6 +1,7 @@
 import std/[tables, strutils, json, os, math, asyncdispatch, options, times, random, sequtils]
 
 import kairosbot/data/persistence
+import kairosbot/utils/common
 
 ## Virtual stock market. Lives in the plugin: only this plugin uses the
 ## state. Prices and holdings persist in data/stocks.json.
@@ -57,8 +58,7 @@ type
     pendingCrash*: Table[string, bool]
     ## items that crash on the next tick
     dataPath*: string
-    saveGeneration*: int
-    saveFuture*: Option[Future[void]]
+    saver: DebouncedSaver
     lastTick*: float
     shockChance*: int
     ## rare surge chance per tick, in percent
@@ -95,9 +95,7 @@ const minPrice* = 1.0
   ## transactions starts to behave like a lottery (fractions of a coin), so
   ## the floor keeps every transaction in the normal integer-coin range.
 
-proc normUser*(user: string): string =
-  ## Normalizes a username (lowercase)
-  result = user.toLowerAscii()
+proc saveMarket*(m: StockMarket)  # forward declaration
 
 proc newStockMarket*(dataPath: string): StockMarket =
   ## Creates the market and loads the persistent data
@@ -111,7 +109,7 @@ proc newStockMarket*(dataPath: string): StockMarket =
     lastTick: 0.0
   )
   let data = loadTyped[MarketData](dataPath, default)
-  result = StockMarket(
+  var m = StockMarket(
     stocks: initTable[string, Stock](),
     holdings: data.holdings,
     invested: data.invested,
@@ -119,8 +117,6 @@ proc newStockMarket*(dataPath: string): StockMarket =
     loans: data.loans,
     pendingCrash: data.pendingCrash,
     dataPath: dataPath,
-    saveGeneration: 0,
-    saveFuture: none(Future[void]),
     lastTick: data.lastTick,
     shockChance: 5,
     shockMin: 20,
@@ -132,8 +128,10 @@ proc newStockMarket*(dataPath: string): StockMarket =
     loanInterest: 0.01,
     maxLoanPct: 0.50
   )
+  m.saver = newDebouncedSaver(proc () {.closure.} = saveMarket(m))
   for s in data.stocks:
-    result.stocks[s.name.toLowerAscii()] = s
+    m.stocks[s.name.toLowerAscii()] = s
+  result = m
 
 proc setStocks*(m: StockMarket, stocks: seq[Stock]) =
   ## Defines the stock list (price, prev, volatility)
@@ -347,25 +345,10 @@ proc saveMarket*(m: StockMarket) =
   )
   saveTyped(m.dataPath, data)
 
-proc performDebounceSave*(m: StockMarket, myGen: int) {.async.} =
-  ## Debounced save after 5s if this is still the current generation
-  await sleepAsync(5000)
-  if myGen != m.saveGeneration:
-    return
-  saveMarket(m)
-  m.saveFuture = none(Future[void])
-
 proc scheduleMarketSave*(m: StockMarket) =
   ## Schedules a debounced save (5s)
-  m.saveGeneration += 1
-  let gen = m.saveGeneration
-  let f = performDebounceSave(m, gen)
-  m.saveFuture = some(f)
+  m.saver.schedule()
 
 proc forceSave*(m: StockMarket) {.async.} =
-  ## Saves immediately: bumps the generation so a pending debounced save
-  ## becomes stale, then saves without awaiting the old future (which may
-  ## have failed and would have blocked the real save)
-  m.saveGeneration += 1
-  m.saveFuture = none(Future[void])
-  saveMarket(m)
+  ## Saves immediately, ignoring the debounce
+  m.saver.flush()
