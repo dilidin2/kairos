@@ -125,6 +125,20 @@ proc parseChatMessage*(chat: TwitchChat, event: JsonNode): ChatMessage =
 
 # --- Handlers per message type ----------------------------------------------
 
+proc withFreshToken*(chat: TwitchChat,
+                    call: proc (accessToken: string): Future[void] {.async.}): Future[void] {.async.} =
+  ## Runs `call` with the current access token; on TokenExpiredError it
+  ## refreshes and persists the token, then retries ONCE with the new one
+  try:
+    await call(chat.token.accessToken)
+  except TokenExpiredError:
+    # expired token: refresh and retry ONCE
+    warn "Token expired, refreshing..."
+    let newToken = await refreshToken(chat.token)
+    chat.token = newToken
+    saveToken(chat.kind, newToken)
+    await call(newToken.accessToken)
+
 proc handleSessionWelcome*(chat: TwitchChat, data: JsonNode) {.async.} =
   ## session_welcome: saves the session_id and subscribes to channel.chat.message
   ## (from here, not before: the session_id only exists after the welcome)
@@ -132,23 +146,14 @@ proc handleSessionWelcome*(chat: TwitchChat, data: JsonNode) {.async.} =
   info "EventSub session_id: " & chat.sessionId
 
   try:
-    await subscribeToChatMessages(
-      chat.token.accessToken, TwitchClientId,
-      chat.broadcasterId, chat.botId, chat.sessionId)
-    info "channel.chat.message subscription succeeded"
-  except TokenExpiredError:
-    # expired token: refresh and retry ONCE
-    warn "Token expired during subscribe, refreshing..."
-    try:
-      let newToken = await refreshToken(chat.token)
-      chat.token = newToken
-      saveToken(chat.kind, newToken)
+    await withFreshToken(chat, proc (token: string) {.async.} =
       await subscribeToChatMessages(
-        newToken.accessToken, TwitchClientId,
-        chat.broadcasterId, chat.botId, chat.sessionId)
-      info "Subscribe succeeded after refresh"
-    except CatchableError as e:
-      error "Subscribe failed even after refresh: " & e.msg
+        token, TwitchClientId,
+        chat.broadcasterId, chat.botId, chat.sessionId))
+    info "channel.chat.message subscription succeeded"
+  except CatchableError as e:
+    # a failure (even after a token refresh) is logged, not propagated
+    error "Subscribe failed: " & e.msg
 
 proc handleSessionKeepalive*(chat: TwitchChat, data: JsonNode) =
   ## session_keepalive: heartbeat, updates the timestamp
@@ -215,19 +220,9 @@ proc handleMessage*(chat: TwitchChat, data: JsonNode) {.async.} =
 
 proc sendMessage*(chat: TwitchChat, text: string) {.async.} =
   ## Sends a message to chat via Helix (delegates to helix.sendChatMessage)
-  try:
-    await sendChatMessage(
-      chat.token.accessToken, chat.broadcasterId, chat.botId, text)
-    info "Sent to chat: ", text
-  except TokenExpiredError:
-    # expired token: refresh and retry ONCE
-    warn "Token expired during send, refreshing..."
-    let newToken = await refreshToken(chat.token)
-    chat.token = newToken
-    saveToken(chat.kind, newToken)
-    await sendChatMessage(
-      newToken.accessToken, chat.broadcasterId, chat.botId, text)
-    info "Sent to chat (after token refresh): ", text
+  await withFreshToken(chat, proc (token: string) {.async.} =
+    await sendChatMessage(token, chat.broadcasterId, chat.botId, text))
+  info "Sent to chat: ", text
 
 # --- Listen loop and watchdog --------------------------------------------------
 
