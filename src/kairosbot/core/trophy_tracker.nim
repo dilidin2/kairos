@@ -1,6 +1,8 @@
-import std/[tables, times, strutils, asyncdispatch, json, sequtils]
+import std/[tables, times, strutils, asyncdispatch, json, os, sequtils]
 
 import ../data/persistence
+import ../twitch/chat
+import ../utils/chat_helpers
 
 type
   TrophyRuleType* = enum
@@ -18,6 +20,13 @@ type
     name*: string
     command*: string
     unlockedAt*: string
+
+  TrophyText* = object
+    ## Translatable text of a one-off trophy (from the plugin's
+    ## trophies.json). `name` is the trophy name, `message` is the chat
+    ## announcement ({user}, {name}, {amount}, {item} placeholders).
+    name*: string
+    message*: string
 
   TrophyTracker* = ref object
     rules*: Table[string, seq[TrophyRule]]
@@ -159,6 +168,49 @@ proc recordEvent*(tracker: TrophyTracker, user: string, command: string, eventTy
 proc getUserTrophies*(tracker: TrophyTracker, user: string): seq[Trophy] =
   ## Returns all the trophies of a user
   result = tracker.trophies.getOrDefault(user, @[])
+
+# --- One-off trophy texts (plugin trophies.json) -------------------------
+
+proc loadTrophyTexts*(path: string): Table[string, TrophyText] =
+  ## Loads a plugin's trophies.json: JString values are message
+  ## templates, JObject values are {name, message} entries.
+  result = initTable[string, TrophyText]()
+  if not fileExists(path):
+    return
+  let node = loadJson(path)
+  if node.kind != JObject:
+    return
+  for key, value in node.pairs:
+    var t: TrophyText
+    case value.kind
+    of JString: t.message = value.getStr
+    of JObject:
+      if value.hasKey("name"): t.name = value["name"].getStr
+      if value.hasKey("message"): t.message = value["message"].getStr
+    else: continue
+    result[key] = t
+
+proc trophyText*(texts: Table[string, TrophyText], key, defaultName,
+                defaultMessage: string): TrophyText =
+  ## Entry from trophies.json with built-in defaults as fallback
+  let t = texts.getOrDefault(key, TrophyText())
+  result = TrophyText(
+    name: if t.name.len > 0: t.name else: defaultName,
+    message: if t.message.len > 0: t.message else: defaultMessage)
+
+proc newTrophy*(name, command: string): Trophy =
+  ## A trophy unlocked now (ISO timestamp already set)
+  result = Trophy(name: name, command: command,
+                  unlockedAt: toIsoString(now().toTime()))
+
+proc sendTrophyUnlocks*(chat: TwitchChat, texts: Table[string, TrophyText],
+                        user: string, trophies: seq[Trophy]) {.async.} =
+  ## Announces newly unlocked trophies in chat ("unlock" template)
+  let tpl = trophyText(texts, "unlock", "",
+    "🏆 {user} unlocked the trophy \"{name}\"!")
+  for t in trophies:
+    let msg = tpl.message.replace("{user}", user).replace("{name}", t.name)
+    await safeSend(chat, msg)
 
 proc getTrophiesByCommand*(tracker: TrophyTracker, user: string, command: string): seq[Trophy] =
   ## Returns a user's trophies for a specific command
