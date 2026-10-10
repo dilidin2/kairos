@@ -30,6 +30,8 @@
   "no_portfolio": "{user}, you don't own any stocks",
   "portfolio_header": "💼 {user}'s portfolio:",
   "holding_line": "{qty} {item} ({value} 🪙)",
+  // lifetime dividends received, appended to every holding line
+  "dividends_suffix": " (dividends: {dividends} 🪙)",
   "portfolio_total": "Total: {value} 🪙 (PnL {pnl})",
   "debt_line": "Debt: {debt} 🪙",
   // holding line for a stock removed from the market (worth 0)

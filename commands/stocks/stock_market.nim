@@ -1,4 +1,4 @@
-import std/[tables, strutils, json, os, math, asyncdispatch, options, times, random, sequtils]
+import std/[tables, strutils, json, os, math, asyncdispatch, options, times, random, sequtils, algorithm]
 
 import kairosbot/data/persistence
 import kairosbot/utils/common
@@ -39,6 +39,9 @@ type
     dividendAccrual*: Table[string, float]
     ## user (lowercase) -> fractional coins accrued as dividends, not yet
     ## paid out (paid in whole coins by payDividends)
+    dividendsPaid*: Table[string, Table[string, int]]
+    ## user (lowercase) -> item (lowercase) -> lifetime dividend coins
+    ## received for that stock
     pendingCrash*: Table[string, bool]
     ## items that crash on the next tick
     lastTick*: float
@@ -56,6 +59,8 @@ type
     ## user (lowercase) -> total debt (principal + interest)
     dividendAccrual*: Table[string, float]
     ## user (lowercase) -> fractional dividend coins not yet paid out
+    dividendsPaid*: Table[string, Table[string, int]]
+    ## user (lowercase) -> item (lowercase) -> lifetime dividend coins
     pendingCrash*: Table[string, bool]
     ## items that crash on the next tick
     dataPath*: string
@@ -109,6 +114,7 @@ proc newStockMarket*(dataPath: string): StockMarket =
     brokerPool: 0.0,
     loans: initTable[string, float](),
     dividendAccrual: initTable[string, float](),
+    dividendsPaid: initTable[string, Table[string, int]](),
     pendingCrash: initTable[string, bool](),
     lastTick: 0.0
   )
@@ -120,6 +126,7 @@ proc newStockMarket*(dataPath: string): StockMarket =
     brokerPool: data.brokerPool,
     loans: data.loans,
     dividendAccrual: data.dividendAccrual,
+    dividendsPaid: data.dividendsPaid,
     pendingCrash: data.pendingCrash,
     dataPath: dataPath,
     lastTick: data.lastTick,
@@ -291,6 +298,39 @@ proc holdingsList*(m: StockMarket, user: string): seq[(string, int)] =
 
 # --- Dividends -----------------------------------------------------------------
 
+proc creditDividends(m: StockMarket, user: string, amount: int) =
+  ## Splits `amount` across the user's holdings proportionally to their
+  ## value (largest remainder, so the parts always sum to `amount`) and
+  ## adds it to their lifetime per-stock total
+  var parts: seq[tuple[item: string, share: int, value: float, frac: float]]
+  var total = 0.0
+  if m.holdings.hasKey(user):
+    for item, qty in m.holdings[user].pairs:
+      if m.stocks.hasKey(item) and qty > 0:
+        let v = m.stocks[item].price * float(qty)
+        parts.add((item, 0, v, 0.0))
+        total += v
+  if total <= 0.0:
+    return
+  if not m.dividendsPaid.hasKey(user):
+    m.dividendsPaid[user] = initTable[string, int]()
+  var allocated = 0
+  for i in 0 ..< parts.len:
+    let exact = float(amount) * parts[i].value / total
+    parts[i].share = int(floor(exact))
+    parts[i].frac = exact - float(parts[i].share)
+    allocated += parts[i].share
+  # leftover coins go to the largest fractions first
+  var leftover = amount - allocated
+  for p in parts.sortedByIt(-it.frac):
+    if leftover <= 0:
+      break
+    m.dividendsPaid[user][p.item] = m.dividendsPaid[user].getOrDefault(p.item, 0) + 1
+    dec leftover
+  for p in parts:
+    if p.share > 0:
+      m.dividendsPaid[user][p.item] = m.dividendsPaid[user].getOrDefault(p.item, 0) + p.share
+
 proc payDividends*(m: StockMarket, user: string): int =
   ## Pays out the whole-coin part of the user's accrued dividend (the
   ## fractional remainder keeps accruing). 0 if there is nothing to pay.
@@ -305,8 +345,16 @@ proc payDividends*(m: StockMarket, user: string): int =
   m.dividendAccrual[u] -= float(whole)
   if m.dividendAccrual[u] <= 0.0:
     m.dividendAccrual.del(u)
+  m.creditDividends(u, whole)
   scheduleMarketSave(m)
   result = whole
+
+proc dividendsPaid*(m: StockMarket, user, item: string): int =
+  ## Lifetime dividend coins the user received for `item`
+  let u = normUser(user)
+  let i = item.toLowerAscii()
+  if m.dividendsPaid.hasKey(u) and m.dividendsPaid[u].hasKey(i):
+    result = m.dividendsPaid[u][i]
 
 # --- Broker and loans ----------------------------------------------------------
 
@@ -368,6 +416,7 @@ proc saveMarket*(m: StockMarket) =
     brokerPool: m.brokerPool,
     loans: m.loans,
     dividendAccrual: m.dividendAccrual,
+    dividendsPaid: m.dividendsPaid,
     pendingCrash: m.pendingCrash,
     lastTick: m.lastTick
   )

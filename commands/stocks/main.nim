@@ -469,6 +469,7 @@ proc cmdPortfolio*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.asyn
     return
   let lineTpl = msgText(msgTexts, "holding_line", "{qty} {item} ({value} 🪙)")
   let delistTpl = msgText(msgTexts, "delisted_line", "{qty} {item} (delisted)")
+  let divTpl = msgText(msgTexts, "dividends_suffix", " (dividends: {dividends} 🪙)")
   var lines: seq[string] = @[]
   for (item, qty) in holdings.sortedByIt(it[0].toLowerAscii()):
     # the stock can have disappeared from the market (removed from
@@ -478,7 +479,8 @@ proc cmdPortfolio*(msg: ChatMessage, cmd: Command, router: CommandRouter) {.asyn
       lines.add(delistTpl.replace("{qty}", $qty).replace("{item}", item))
       continue
     lines.add(lineTpl.replace("{qty}", $qty).replace("{item}", sOpt.get().name)
-      .replace("{value}", $round2(float(qty) * sOpt.get().price)))
+      .replace("{value}", $round2(float(qty) * sOpt.get().price)) &
+      divTpl.replace("{dividends}", $market.dividendsPaid(msg.username, item)))
   let value = market.portfolioValue(msg.username)
   let profit = market.pnl(msg.username)
   let sign = if profit >= 0: "+" else: ""
