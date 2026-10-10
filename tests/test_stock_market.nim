@@ -83,6 +83,33 @@ suite "StockMarket":
     if fileExists(path):
       removeFile(path)
 
+  test "dividends accrue and pay out whole coins":
+    let m = sm.newStockMarket("/tmp/test_stocks_market7.json")
+    m.setStocks(@[sm.Stock(name: "Pasta", price: 10.0, prevPrice: 10.0, volatility: 0.0)])
+    m.dividendPct = 0.05  # 5% of the holdings value per tick
+    m.addHolding("mario", "pasta", 1, 10.0)
+    discard m.tick()  # accrual: 10 * 0.05 = 0.5
+    check m.payDividends("mario") == 0  # 0.5 < 1 coin: nothing to pay
+    discard m.tick()  # accrual: 0.5 + 0.5 = 1.0
+    check m.payDividends("mario") == 1  # pays the whole coin
+    check m.payDividends("mario") == 0  # nothing left
+    check m.payDividends("nobody") == 0
+
+  test "dividends are credited per stock proportionally":
+    let m = sm.newStockMarket("/tmp/test_stocks_market8.json")
+    m.setStocks(@[
+      sm.Stock(name: "Pasta", price: 10.0, prevPrice: 10.0, volatility: 0.0),
+      sm.Stock(name: "GPU", price: 20.0, prevPrice: 20.0, volatility: 0.0)
+    ])
+    m.addHolding("mario", "pasta", 1, 10.0)  # value 10
+    m.addHolding("mario", "gpu", 1, 20.0)    # value 20
+    m.dividendAccrual["mario"] = 10.0  # 10 coins to split 1/3 - 2/3
+    check m.payDividends("mario") == 10
+    check m.dividendsPaid("mario", "pasta") == 3
+    check m.dividendsPaid("mario", "gpu") == 7
+    check m.dividendsPaid("mario", "unknown") == 0
+    check m.payDividends("mario") == 0
+
   test "round2 arrotonda a 2 decimali":
     check sm.round2(1.005) == 1.0  # bankers/rounding to 2 digits
     check sm.round2(1.234) == 1.23
