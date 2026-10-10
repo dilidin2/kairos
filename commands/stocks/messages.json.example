@@ -45,5 +45,12 @@
   "borrowed": "{user} borrowed {amount} 🪙 from the broker (interest {interest}% per tick)",
   "no_debt": "{user}, you have no debt",
   "cannot_repay": "{user}, you can't repay: no balance",
-  "repaid": "{user} repaid {amount} 🪙 to the broker (left: {debt} 🪙)"
+  "repaid": "{user} repaid {amount} 🪙 to the broker (left: {debt} 🪙)",
+  "fake_bought": "{name} buys {qty} {item}: {flavor}",
+  "fake_sold": "{name} sells {qty} {item}: {flavor}",
+  "ask_usage": "{user}, usage: !broker <question>",
+  "ask_unavailable": "{user}, the broker is on a break (no LLM configured)",
+  "ask_cooldown": "{user}, the broker is still recovering from the last question, hang on",
+  "ask_timeout": "{user}, the broker fainted mid-answer. Try again.",
+  "ask_empty": "{user}, the broker has absolutely nothing to say."
 }

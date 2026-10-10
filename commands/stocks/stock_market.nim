@@ -9,10 +9,14 @@ import kairosbot/utils/common
 type
   Stock* = object
     name*: string
+    basePrice*: float
+    ## the price the market reverts to when nobody holds the stock. It is
+    ## the config "price": the anchor of the supply/demand model.
     price*: float
+    ## current trading price (starts at basePrice)
     prevPrice*: float
     volatility*: float
-    ## amplitude of the random walk (e.g. 0.10 = ±10%)
+    ## amplitude of the per-tick noise (e.g. 0.10 = ±10%)
     supply*: int
     ## total shares in existence: all users combined can never hold more
 
@@ -31,6 +35,7 @@ type
     ## Serializable snapshot
     stocks*: seq[Stock]
     holdings*: Table[string, Table[string, int]]
+    fakeHoldings*: Table[string, Table[string, int]]
     invested*: Table[string, float]
     brokerPool*: float
     ## real coins collected as broker fees: the only source of loan money
@@ -42,8 +47,6 @@ type
     dividendsPaid*: Table[string, Table[string, int]]
     ## user (lowercase) -> item (lowercase) -> lifetime dividend coins
     ## received for that stock
-    pendingCrash*: Table[string, bool]
-    ## items that crash on the next tick
     lastTick*: float
 
   StockMarket* = ref object
@@ -51,6 +54,10 @@ type
     ## item (lowercase) -> Stock
     holdings*: Table[string, Table[string, int]]
     ## user (lowercase) -> item -> qty
+    fakeHoldings*: Table[string, Table[string, int]]
+    ## fake investor (config name) -> item -> qty. Separate table: can never
+    ## collide with a Twitch username and is excluded from real-user state
+    ## (dividends, loans, trophies, leaderboards).
     invested*: Table[string, float]
     ## user (lowercase) -> net invested cash (buys - sells)
     brokerPool*: float
@@ -61,23 +68,23 @@ type
     ## user (lowercase) -> fractional dividend coins not yet paid out
     dividendsPaid*: Table[string, Table[string, int]]
     ## user (lowercase) -> item (lowercase) -> lifetime dividend coins
-    pendingCrash*: Table[string, bool]
-    ## items that crash on the next tick
     dataPath*: string
     saver: DebouncedSaver
     lastTick*: float
+    demandExp*: float
+    ## supply/demand exponent: equilibrium = basePrice * (1 + held/supply)^n
+    reversion*: float
+    ## fraction of the gap to equilibrium closed each tick (mean reversion)
+    noiseScale*: float
+    ## per-tick noise as a fraction of the stock's volatility
     shockChance*: int
-    ## rare surge chance per tick, in percent
+    ## rare shock (surge or crash, exactly 50/50) chance per tick, in percent
     shockMin*: int
     ## rare event minimum amplitude, in percent
     shockMax*: int
     ## rare event maximum amplitude, in percent
-    crashChance*: int
-    ## chance per tick of a pre-crash rumour, in percent. Kept equal to
-    ## shockChance by default: with equal chances and amplitude the
-    ## expected drift of the log-price is zero.
     crashThreshold*: float
-    ## shock >= this is announced as a crash/surge (+ survivor trophy)
+    ## shock >= this counts as a crash (+ survivor trophy)
     maxPrice*: float
     ## hard upper bound for a stock price (safety net against runaway growth)
     brokerFee*: float
@@ -98,10 +105,11 @@ proc round2*(x: float): float =
   ## Rounds to 2 decimal places
   result = round(x * 100.0) / 100.0
 
-const minPrice* = 1.0
-  ## Hard lower bound for a stock price. Below this the round2 rounding in
-  ## transactions starts to behave like a lottery (fractions of a coin), so
-  ## the floor keeps every transaction in the normal integer-coin range.
+const minPrice* = 0.01
+  ## Safety net against zero/negative prices. Deliberately FAR below any
+  ## basePrice so it never acts as a reflecting wall (a floor near the
+  ## equilibrium is what caused the old upward drift). The price reverts to
+  ## basePrice, so it practically never approaches this bound.
 
 proc saveMarket*(m: StockMarket)  # forward declaration
 
@@ -110,30 +118,32 @@ proc newStockMarket*(dataPath: string): StockMarket =
   let default = MarketData(
     stocks: @[],
     holdings: initTable[string, Table[string, int]](),
+    fakeHoldings: initTable[string, Table[string, int]](),
     invested: initTable[string, float](),
     brokerPool: 0.0,
     loans: initTable[string, float](),
     dividendAccrual: initTable[string, float](),
     dividendsPaid: initTable[string, Table[string, int]](),
-    pendingCrash: initTable[string, bool](),
     lastTick: 0.0
   )
   let data = loadTyped[MarketData](dataPath, default)
   var m = StockMarket(
     stocks: initTable[string, Stock](),
     holdings: data.holdings,
+    fakeHoldings: data.fakeHoldings,
     invested: data.invested,
     brokerPool: data.brokerPool,
     loans: data.loans,
     dividendAccrual: data.dividendAccrual,
     dividendsPaid: data.dividendsPaid,
-    pendingCrash: data.pendingCrash,
     dataPath: dataPath,
     lastTick: data.lastTick,
+    demandExp: 1.0,
+    reversion: 0.15,
+    noiseScale: 0.5,
     shockChance: 5,
     shockMin: 20,
     shockMax: 40,
-    crashChance: 5,
     crashThreshold: 0.20,
     maxPrice: 100000.0,
     brokerFee: 0.02,
@@ -162,57 +172,56 @@ proc stock*(m: StockMarket, item: string): Option[Stock] =
 
 proc scheduleMarketSave*(m: StockMarket)  # forward declaration
 proc portfolioValue*(m: StockMarket, user: string): float  # forward declaration
+proc totalHeld*(m: StockMarket, item: string): int  # forward declaration
 
 proc tick*(m: StockMarket): seq[MarketEvent] =
-  ## One market step. Order: (1) execute the crashes telegraphed by the
-  ## previous tick, (2) random walk + surges + new crash rumours,
-  ## (3) loan interest, (4) dividend accrual. Returns the crash events.
+  ## One market step: (1) mean reversion to the supply/demand equilibrium
+  ## + symmetric noise + rare symmetric shocks, (2) loan interest,
+  ## (3) dividend accrual. Returns the crash events.
   result = @[]
-  # 1) crashes telegraphed by the previous tick
-  var crashedThisTick: Table[string, bool]
-  for key in toSeq(m.pendingCrash.keys):
-    if m.stocks.hasKey(key):
-      var item = m.stocks[key]
-      let magnitude = float(rand(m.shockMin .. m.shockMax)) / 100.0
-      let oldPrice = item.price
-      item.price = max(round2(item.price * exp(-magnitude)), minPrice)
-      m.stocks[key] = item
-      crashedThisTick[key] = true
-      # the event carries the ACTUAL signed price change (exp(-0.30) is
-      # -25.9%, not -30%), so chat messages are exact
-      result.add(MarketEvent(kind: meCrash, item: item.name,
-                             magnitude: item.price / oldPrice - 1.0))
-  m.pendingCrash = initTable[string, bool]()
-  # 2) normal trading: walk, surges, crash rumours
   for key in m.stocks.keys:
     var item = m.stocks[key]
-    # keep the pre-crash price as the trend reference (step 1 already set
-    # prevPrice to the pre-crash value)
-    if not crashedThisTick.hasKey(key):
-      item.prevPrice = item.price
-    # random walk: log-normal so the median (not the mean) stays flat.
-    # A +x followed by a -x returns to the exact previous price
-    # (exp(x)*exp(-x)=1), which kills the volatility drag that made
-    # prices decay tick after tick.
-    let change = rand(-item.volatility .. item.volatility)
-    item.price = round2(item.price * exp(change))
-    # rare positive shock (surge), immediate. rand(99): 0..99, so
-    # `rand(99) < N` is exactly N percent. The two events roll
-    # INDEPENDENTLY (not if/elif): with equal chances the expected
-    # drift of the log-price is exactly zero.
+    item.prevPrice = item.price
+    # equilibrium: how much of the supply is held (real users + fake
+    # investors) pushes the price above basePrice; selling pulls it back.
+    # supply <= 0 is a degenerate config: fall back to basePrice.
+    let held = m.totalHeld(item.name)
+    let eq =
+      if item.supply > 0:
+        item.basePrice * pow(1.0 + float(held) / float(item.supply),
+                             m.demandExp)
+      else:
+        item.basePrice
+    # mean reversion: close a fraction of the gap to equilibrium. This is
+    # what keeps the drift at zero: the price is anchored to basePrice.
+    item.price += m.reversion * (eq - item.price)
+    # small symmetric noise (a fraction of the stock's volatility)
+    item.price += rand(-1.0 .. 1.0) * item.volatility * m.noiseScale *
+                  item.price
+    # rare shock, EXACTLY symmetric: 50% surge / 50% crash, same amplitude
+    # distribution. exp(+a) and exp(-a) are mirror images in log-space, so
+    # the expected log-drift is zero (unlike the old surge/crash split, the
+    # two sides are identical and neither is truncated by the floor).
     if rand(99) < m.shockChance:
       let magnitude = float(rand(m.shockMin .. m.shockMax)) / 100.0
-      item.price = round2(item.price * exp(magnitude))
-    # pre-crash rumour: the crash lands on the NEXT tick
-    if rand(99) < m.crashChance:
-      m.pendingCrash[key] = true
-    # keep the price inside [minPrice, maxPrice] (see minPrice)
-    item.price = clamp(item.price, minPrice, m.maxPrice)
+      let oldPrice = item.price
+      if rand(1) == 0:
+        item.price *= exp(-magnitude)
+        # the event carries the ACTUAL signed change (exp(-0.30) is -25.9%,
+        # not -30%), so chat messages and the survivor trophy are exact
+        if magnitude >= m.crashThreshold:
+          result.add(MarketEvent(kind: meCrash, item: item.name,
+                                 magnitude: item.price / oldPrice - 1.0))
+      else:
+        item.price *= exp(magnitude)
+    # safety clamp. The price reverts to basePrice (>= minPrice), so the
+    # floor practically never binds and cannot act as a reflecting wall.
+    item.price = clamp(round2(item.price), minPrice, m.maxPrice)
     m.stocks[key] = item
-  # 3) debts grow with interest
+  # debts grow with interest
   for u in toSeq(m.loans.keys):
     m.loans[u] = round2(m.loans[u] * (1.0 + m.loanInterest))
-  # 4) dividends: every holder accrues a per-tick cut of their holdings
+  # dividends: every holder accrues a per-tick cut of their holdings
   # value; the whole-coin part is paid out by payDividends
   if m.dividendPct > 0.0:
     for u in toSeq(m.holdings.keys):
@@ -224,10 +233,49 @@ proc tick*(m: StockMarket): seq[MarketEvent] =
 # --- Supply -----------------------------------------------------------------
 
 proc totalHeld*(m: StockMarket, item: string): int =
-  ## Total shares of `item` held by ALL users
+  ## Total shares of `item` held by ALL real users AND fake investors
   let i = item.toLowerAscii()
   for u in m.holdings.keys:
     result += m.holdings[u].getOrDefault(i, 0)
+  for f in m.fakeHoldings.keys:
+    result += m.fakeHoldings[f].getOrDefault(i, 0)
+
+proc fakeTotalHeld*(m: StockMarket, item: string): int =
+  ## Total shares of `item` held by all fake investors
+  let i = item.toLowerAscii()
+  for f in m.fakeHoldings.keys:
+    result += m.fakeHoldings[f].getOrDefault(i, 0)
+
+proc fakeHoldingQty*(m: StockMarket, investor: string, item: string): int =
+  ## Quantity of `item` held by a fake investor
+  let i = item.toLowerAscii()
+  if m.fakeHoldings.hasKey(investor) and m.fakeHoldings[investor].hasKey(i):
+    result = m.fakeHoldings[investor][i]
+  else:
+    result = 0
+
+proc addFakeHolding*(m: StockMarket, investor: string, item: string, qty: int) =
+  ## Adds `qty` of `item` to a fake investor's holdings (no cash, no fee)
+  let i = item.toLowerAscii()
+  if not m.fakeHoldings.hasKey(investor):
+    m.fakeHoldings[investor] = initTable[string, int]()
+  m.fakeHoldings[investor][i] = m.fakeHoldings[investor].getOrDefault(i, 0) + qty
+  scheduleMarketSave(m)
+
+proc removeFakeHolding*(m: StockMarket, investor: string, item: string, qty: int): bool =
+  ## Removes `qty` of `item` from a fake investor's holdings. False if there
+  ## isn't enough.
+  let i = item.toLowerAscii()
+  if not m.fakeHoldings.hasKey(investor) or m.fakeHoldings[investor].getOrDefault(i, 0) < qty:
+    result = false
+    return
+  m.fakeHoldings[investor][i] = m.fakeHoldings[investor][i] - qty
+  if m.fakeHoldings[investor][i] == 0:
+    m.fakeHoldings[investor].del(i)
+  if m.fakeHoldings[investor].len == 0:
+    m.fakeHoldings.del(investor)
+  scheduleMarketSave(m)
+  result = true
 
 proc remainingSupply*(m: StockMarket, item: string): int =
   ## Shares of `item` still available for purchase
@@ -412,12 +460,12 @@ proc saveMarket*(m: StockMarket) =
   let data = MarketData(
     stocks: toSeq(m.stocks.values),
     holdings: m.holdings,
+    fakeHoldings: m.fakeHoldings,
     invested: m.invested,
     brokerPool: m.brokerPool,
     loans: m.loans,
     dividendAccrual: m.dividendAccrual,
     dividendsPaid: m.dividendsPaid,
-    pendingCrash: m.pendingCrash,
     lastTick: m.lastTick
   )
   saveTyped(m.dataPath, data)

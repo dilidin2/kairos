@@ -45,5 +45,12 @@
     "help": "show your holdings, total value, PnL and debts",
     "aliases": [],
     "cooldown": 5
+  },
+  "!broker": {
+    "help": "ask the sarcastic broker about the market or your portfolio (!broker <question>)",
+    "aliases": [],
+    // per-user cooldown; the global rate limit is brokerGlobalCooldownSec
+    // in stocks.json
+    "cooldown": 15
   }
 }

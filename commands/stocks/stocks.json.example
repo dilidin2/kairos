@@ -1,9 +1,8 @@
 {
   // --- Market parameters ---
 
-  // How often (in seconds) the market does a tick: one random-walk step
-  // for every stock, plus a chance of a rare surge and a chance of a
-  // crash on the next tick (main.nim: doTick).
+  // How often (in seconds) the market does a tick: one mean-reversion step
+  // for every stock, plus a chance of a rare (symmetric) shock.
   "tickSeconds": 60,
 
   // PnL threshold for the "PnL King" trophy: first user whose
@@ -16,8 +15,31 @@
   // unlocks the trophy and gets announced in chat.
   "millionaire": 1000.0,
 
-  // Chance (in percent, 0-100) per tick and per stock that a rare
-  // positive shock (surge) hits it, on top of the normal random walk.
+  // --- Supply/demand model ---
+  // The price reverts every tick to:
+  //   equilibrium = basePrice * (1 + held/supply)^demandExp
+  // where "held" is the total shares held by real users AND fake investors.
+  // Buying pushes the price up, selling pulls it back toward basePrice.
+  // This mean-reversion is what keeps the long-run drift at ~0.
+
+  // Exponent on the demand curve. 1.0 = linear: holding 50% of the supply
+  // doubles the price. Higher = steeper (smaller trades move the price more).
+  "demandExp": 1.0,
+
+  // Fraction of the gap to the equilibrium closed each tick (0.15 = 15%).
+  // Higher = the price snaps back to the equilibrium faster.
+  "reversion": 0.15,
+
+  // Size of the per-tick noise, as a fraction of the stock's volatility.
+  // noise = uniform(-1,1) * volatility * noiseScale * price.
+  // 0.5 = the noise is half the stock's volatility per tick.
+  "noiseScale": 0.5,
+
+  // --- Rare shocks ---
+  // Chance (in percent, 0-100) per tick and per stock that a rare shock
+  // hits it. The shock is EXACTLY symmetric: 50% chance of a surge, 50%
+  // of a crash, with the same amplitude in [shockMin, shockMax]. Because
+  // the two sides are mirror images in log-space, the expected drift is 0.
   "shockChance": 5,
 
   // Minimum amplitude of a rare shock, in percent (e.g. 20 = ±20%).
@@ -26,19 +48,13 @@
   // Maximum amplitude of a rare shock, in percent.
   "shockMax": 40,
 
-  // Chance (in percent, 0-100) per tick and per stock that a crash lands
-  // on the NEXT tick with an amplitude in [shockMin, shockMax]. Keep it
-  // EQUAL to shockChance: with equal chances and the same amplitude the
-  // expected price drift is zero (surges and crashes balance out).
-  "crashChance": 5,
-
-  // A shock with |amplitude| >= this (as a fraction, 0.2 = 20%) counts as
-  // a crash: "Crash Survivor" trophies are awarded to whoever held that
+  // A shock with amplitude >= this (as a fraction, 0.2 = 20%) counts as a
+  // crash: "Crash Survivor" trophies are awarded to whoever held that
   // stock. (The crashes themselves are silent in chat.)
   "crashThreshold": 0.2,
 
-  // Hard upper bound for a stock price (safety net against runaway
-  // growth; with balanced drift it is practically unreachable).
+  // Hard upper bound for a stock price (safety net; with mean reversion it
+  // is practically unreachable).
   "maxPrice": 100000.0,
 
   // Broker fee on every buy/sell, in percent (2.0 = 2%). The fees are
@@ -61,16 +77,62 @@
   // Default total shares per stock when "supply" is not set on it.
   "defaultSupply": 1000,
 
+  // --- Fake LLM investors ---
+  // Every N ticks the local LLM plays all the fake investors at once
+  // (one call) and may buy/sell for them. Requires an LLM server in the
+  // main config.json (llm_server); without it they stay silent.
+  // Their holdings live in a separate table, never touch real users, and
+  // are excluded from trophies, dividends and the loan pool.
+
+  // How often (in ticks) the LLM is called. 0 = disabled.
+  "fakeInvestorsEveryNTicks": 5,
+
+  // Max seconds for one LLM round. On timeout the round is skipped.
+  "fakeInvestorTimeoutSec": 60,
+
+  // Max % of a single stock's supply held by ALL fake investors combined.
+  "fakeInvestorTotalCapPct": 25,
+
+  // The fake investors. "maxPerStockPct" caps each one individually.
+  "investors": [
+    {
+      "name": "GrazieGuru",
+      "personality": "a hype-driven momentum trader who buys whatever is pumping and chases every green candle",
+      "maxPerStockPct": 8
+    },
+    {
+      "name": "NonnaRita",
+      "personality": "a cautious value investor who only buys deeply discounted blue chips and is slow to sell",
+      "maxPerStockPct": 5
+    },
+    {
+      "name": "DeFiDan",
+      "personality": "a degenerate gambler who goes all-in on the weirdest memecoins and panics at the first dip",
+      "maxPerStockPct": 6
+    },
+    {
+      "name": "ProfZeta",
+      "personality": "a contrarian macro analyst who buys what everyone is selling and sells the crowd favorites",
+      "maxPerStockPct": 7
+    }
+  ],
+
+  // --- Broker ---
+  // Global min seconds between two !broker answers, from ANY user. The
+  // per-user cooldown is set in commands.json (the broker command).
+  "brokerGlobalCooldownSec": 30.0,
+
   // --- Stock list ---
-  // New stocks start from the "price" here; already persisted stocks
-  // keep their current price and only "volatility" and "supply" are
-  // reloaded. "supply" is the total shares in existence: if everyone
-  // is bought out, no one can buy again until someone sells.
+  // "price" is the basePrice: the anchor the market reverts to. New stocks
+  // start from it; already persisted stocks keep their current price and
+  // only "basePrice" (from "price"), "volatility" and "supply" are reloaded.
+  // "supply" is the total shares in existence: if everyone is bought out,
+  // no one can buy again until someone sells.
   "stocks": [
     {
       "name": "Pasta",
       "price": 10.0,
-      // Amplitude of the normal random walk per tick, as a fraction
+      // Amplitude of the normal noise per tick, as a fraction
       // (0.08 = ±8% per tick). Higher = more volatile/risky stock.
       "volatility": 0.08,
       "supply": 500

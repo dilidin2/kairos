@@ -27,6 +27,7 @@ logs/
 .vscode/
 .idea/
 tools/gen_plugins
+tools/drift_sim
 commands/*/main
 
 # Local docs and personal files
