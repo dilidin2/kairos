@@ -26,6 +26,9 @@ var
   ## username (lowercase) -> unix seconds of the user's next payroll
   payrollPath: string
   ## where nextPayAt is persisted (data/economy_payroll.json)
+  lastMsg*: Table[string, Time]
+  ## username -> time of the user's last chat message (in-memory: after a
+  ## restart nobody has a recent message, so stale users don't get paid)
 
 # --- Parameters -----------------------------------------------------------------------
 
@@ -55,6 +58,9 @@ type
     ## coins credited to each user per payroll
     intervalMinutes*: int
     ## how often the payroll runs (minutes)
+    activeMinutes*: int
+    ## a user is paid only if their last chat message is at most this many
+    ## minutes old; 0 disables the presence check (always pay)
     message*: string
     ## per-user chat announcement (placeholders {user}, {amount})
     firstPayTrophy*: string
@@ -65,6 +71,7 @@ proc loadPayrollConfig*(path: string): PayrollConfig =
   result = PayrollConfig(
     amount: 10,
     intervalMinutes: 60,
+    activeMinutes: 10,
     message: "💸 {user}, added {amount} 🪙 to your balance!",
     firstPayTrophy: "First Paycheck")
   let node = loadJson(path)
@@ -76,6 +83,8 @@ proc loadPayrollConfig*(path: string): PayrollConfig =
     result.amount = p["amount"].getInt
   if p.hasKey("intervalMinutes") and p["intervalMinutes"].kind == JInt:
     result.intervalMinutes = p["intervalMinutes"].getInt
+  if p.hasKey("activeMinutes") and p["activeMinutes"].kind == JInt:
+    result.activeMinutes = p["activeMinutes"].getInt
   if p.hasKey("message") and p["message"].kind == JString:
     result.message = p["message"].getStr
   if p.hasKey("firstPayTrophy") and p["firstPayTrophy"].kind == JString:
@@ -87,7 +96,12 @@ proc payrollTick*(chat: TwitchChat, tracker: TrophyTracker,
   ## minutes after their own first interaction, so nobody gets stuck at 0.
   ## Brand-new users are scheduled; users whose pay is due get credited and
   ## are announced publicly (with the first-pay trophy on the first one).
+  ## Before being paid, a user must still be in the stream: their last chat
+  ## message must be within `activeMinutes` (presence check, same pattern as
+  ## the quests pool); users not in the window are skipped and rescheduled.
   let interval = cfg.intervalMinutes * 60
+  let activeWindow = initDuration(minutes = cfg.activeMinutes)
+  let nowTime = now().toTime()
   var dirty = false
   # schedule users we haven't seen before (first pay `interval` from now)
   for user in toSeq(svc.balances.keys):
@@ -98,6 +112,14 @@ proc payrollTick*(chat: TwitchChat, tracker: TrophyTracker,
   var paid: seq[string] = @[]
   for user in toSeq(nextPayAt.keys):
     if nextPayAt[user] <= nowSec:
+      # presence check: last message within the window, otherwise no pay and
+      # the per-user clock is restarted from now (no catch-up storm of stale
+      # users after a bot restart / stream stop)
+      if cfg.activeMinutes > 0 and
+          nowTime - lastMsg.getOrDefault(user, initTime(0, 0)) > activeWindow:
+        nextPayAt[user] = nowSec + interval
+        dirty = true
+        continue
       svc.credit(user, cfg.amount)
       # no catch-up storm after downtime: next pay is >= `interval` from now
       nextPayAt[user] = if nextPayAt[user] + interval < nowSec:
@@ -221,6 +243,10 @@ proc register*(ctx: PluginContext) =
     payrollPath = ctx.platform.dataDir / "economy_payroll.json"
     nextPayAt = loadTyped[Table[string, int]](payrollPath,
                     initTable[string, int]())
+    lastMsg = initTable[string, Time]()
+    # presence: track every chat message for the payroll window check
+    ctx.onMessage(proc (msg: ChatMessage) {.async.} =
+      lastMsg[msg.username] = now().toTime())
     let chat = ctx.platform.router.chat
     let tracker = ctx.platform.trophyTracker
     # fixed 1-minute tick so each user's per-user due time is caught on time

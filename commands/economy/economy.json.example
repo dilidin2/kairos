@@ -11,10 +11,13 @@
   // minutes after their own first interaction, so nobody gets stuck at 0.
   // `message` is announced in chat for each payout (placeholders {user},
   // {amount}); `firstPayTrophy` is the trophy unlocked on the first payroll.
+  // `activeMinutes`: a user is paid only if their last chat message is at
+  // most this many minutes old (presence check); 0 disables the check.
   // Set `amount` or `intervalMinutes` to 0 to disable the payroll.
   "payroll": {
     "amount": 10,
     "intervalMinutes": 60,
+    "activeMinutes": 10,
     "message": "💸 {user}, added {amount} 🪙 to your balance!",
     "firstPayTrophy": "First Paycheck"
   }
