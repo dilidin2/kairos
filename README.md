@@ -47,6 +47,8 @@ See the [website](https://dilidin2.github.io/kairos/) for the full command refer
 nimble install
 ```
 
+> **Note:** `nimble install` does not run code-generation steps (Nimble 2.x has no pre-build hooks). It needs `generated/plugins_agg.nim` to exist, which is created by `nimble build` (see below). On a fresh clone, or after adding/removing plugins, run `nimble build` first.
+
 ## Configuration
 
 `config/bot_config.json.example` is copied to `config/bot_config.json` automatically on first run — edit the values afterwards.
@@ -75,7 +77,9 @@ To enable the LLM-driven quest system, point the `llm_server` config block at an
 nimble build
 ```
 
-**After adding/removing every plugin you need to build again**
+This generates `generated/plugins_agg.nim` (from `commands/*/main.nim`) and then compiles in release mode.
+
+**After adding/removing every plugin you need to build again** (and re-run `nimble install` if the bot is installed).
 
 ## Test
 

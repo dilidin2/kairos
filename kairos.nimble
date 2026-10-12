@@ -12,6 +12,7 @@ requires "ws >= 0.5.0"
 
 bin = @["kairos"]
 
+
 task build, "Build the bot (generates the plugin aggregator first)":
   exec "nim c tools/gen_plugins.nim"
   exec "tools/gen_plugins"
