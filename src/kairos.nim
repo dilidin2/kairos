@@ -132,7 +132,7 @@ proc seedDefaults() =
     if dirExists(dir):
       for f in walkDirRec(dir):
         if f.endsWith(".example"):
-          let target = f[0 ..^ 9]  # strip ".example"
+          let target = f[0 ..^ 9]  # strip ".example" (highIndex ^N removes N-1 chars)
           if not fileExists(target):
             copyFile(f, target)
             inc created
