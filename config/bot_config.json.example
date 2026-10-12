@@ -1,15 +1,16 @@
 {
-  "bot_name": "kairos",
-  "channel": "yout_streamer_name",
+  "bot_name": "your_bot_name",
+  "channel": "your_channel",
   "command_prefix": "!",
   "cooldown_default": 30,
   "llm_server": {
-    "host": "localhost",
-    "port": 8123,
+    "base_url": "http://localhost:8123/v1",
+    "api_key": "your_api_key",
+    "model": "your_model_name",
     "temperature": 0.6,
     "max_tokens": 4096
   },
-  "bot_language": "en",
+  "bot_language": "it",
   "quest_system": {
     "enabled": true,
     "periodic_quest_call": 1,
