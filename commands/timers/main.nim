@@ -5,7 +5,7 @@ import kairosbot/data/persistence
 import kairosbot/utils/common
 
 type
-  TimerState = object
+  TimerState* = object
     messages*: seq[string]
     shuffle*: bool
     idx*: int
@@ -18,6 +18,15 @@ proc pickMessage(t: var TimerState): string =
   else:
     result = t.messages[t.idx]
     t.idx = (t.idx + 1) mod t.messages.len
+
+proc makeHandler*(ctx: PluginContext, state: TimerState): TimerHandler =
+  ## Builds the timer handler. `state` is copied into a per-handler local
+  ## `s` captured by the closure, so each handler owns its own persistent
+  ## state. This fixes the closure-in-loop bug: previously every handler
+  ## captured the last `state` of the loop, so all timers shared one state.
+  var s = state
+  proc () {.async.} =
+    await ctx.send(pickMessage(s))
 
 proc register*(ctx: PluginContext) =
   let path = ctx.dir / "config.json"
@@ -73,7 +82,5 @@ proc register*(ctx: PluginContext) =
         true
 
     var state = TimerState(messages: messages, shuffle: shuffle)
-    ctx.every(intervalMin * 60, proc () {.async.} =
-      await ctx.send(pickMessage(state))
-    )
+    ctx.every(intervalMin * 60, makeHandler(ctx, state))
     echo "[PLUGIN] timers: timer '", name, "' active (every ", $intervalMin, " min)"
